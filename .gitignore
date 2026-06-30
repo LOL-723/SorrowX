@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 storage/
+src/core/storage/daemon/
 
 .pytest_cache/
 .mypy_cache/
