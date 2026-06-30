@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -44,7 +46,15 @@ class LangGraphRoutingTest(unittest.TestCase):
         self.assertEqual(update["tool_results"], [])
 
     def test_agent_node_returns_final_result_without_verifier(self) -> None:
+        expected_memory = [
+            {
+                "question": "Previous question",
+                "final_answer": "Previous answer",
+            }
+        ]
+
         def fake_planner(state):
+            self.assertEqual(state.get("context_memory"), expected_memory)
             return {
                 "plan": [
                     {
@@ -95,25 +105,72 @@ class LangGraphRoutingTest(unittest.TestCase):
                 "logs": [],
             }
 
-        with (
-            patch("llm.langgraph.planner_node", side_effect=fake_planner),
-            patch("llm.langgraph.select_next_step_node", side_effect=fake_select),
-            patch("llm.langgraph.agent_loop_node", side_effect=fake_loop),
-            patch("llm.langgraph._summarize_agent_answer", return_value="final answer"),
-        ):
-            update = langgraph.agent_node(
-                {
-                    "question": "complex task",
-                    "use_rag": True,
-                    "file_info": {"document_id": "doc_123"},
-                    "logs": [],
-                }
-            )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            memory_path = f"{temp_dir}/context_memory.jsonl"
+            with open(memory_path, "w", encoding="utf-8") as file:
+                file.write(json.dumps(expected_memory[0]) + "\n")
+
+            with (
+                patch("llm.langgraph.planner_node", side_effect=fake_planner),
+                patch("llm.langgraph.select_next_step_node", side_effect=fake_select),
+                patch("llm.langgraph.agent_loop_node", side_effect=fake_loop),
+                patch("llm.langgraph._summarize_agent_answer", return_value="final answer"),
+            ):
+                update = langgraph.agent_node(
+                    {
+                        "question": "complex task",
+                        "use_rag": True,
+                        "file_info": {"document_id": "doc_123"},
+                        "context_memory_path": memory_path,
+                        "logs": [],
+                    }
+                )
 
         self.assertEqual(update["route"], "agent")
         self.assertEqual(update["answer"], "final answer")
         self.assertEqual(update["end_status"], "finished")
         self.assertEqual(update["agent_state"]["document_id"], "doc_123")
+
+    def test_context_memory_node_records_question_and_answer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            update = langgraph.context_memory_node(
+                {
+                    "question": "What changed?",
+                    "answer": "Memory was recorded.",
+                    "end_status": "finished",
+                    "context_memory_path": f"{temp_dir}/context_memory.jsonl",
+                    "logs": [],
+                }
+            )
+
+        self.assertEqual(
+            update["context_memory"],
+            [
+                {
+                    "question": "What changed?",
+                    "final_answer": "Memory was recorded.",
+                }
+            ],
+        )
+
+    def test_context_memory_node_skips_failed_answer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            memory_path = f"{temp_dir}/context_memory.jsonl"
+            update = langgraph.context_memory_node(
+                {
+                    "question": "What failed?",
+                    "answer": "planner failed: planner returned invalid JSON",
+                    "end_status": "failed",
+                    "context_memory_path": memory_path,
+                    "logs": [],
+                }
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                open(memory_path, encoding="utf-8").close()
+
+        self.assertEqual(update["context_memory"], [])
+        self.assertEqual(update["logs"][-1]["message"], "context memory skipped")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,10 @@ from langgraph.graph import END, START, StateGraph
 from openai import OpenAI
 
 from core.config import settings
+from llm.Agent.memory import (
+    ContextMemory,
+    OneRunMemory,
+)
 from llm.Agent.nodes import agent_loop_node, planner_node, select_next_step_node
 from llm.Agent.prompt import FINAL_RESULT_SUMMARY_PROMPT
 from llm.Agent.state import AgentState, MAX_PLAN_STEPS, MAX_REPLAN_COUNT, MAX_STEP_REPLAN_COUNT
@@ -45,6 +49,8 @@ class LangGraphState(TypedDict, total=False):
     end_status: EndStatus
     verifier_reason: str
     has_hallucination: bool
+    context_memory: list[dict[str, str]]
+    context_memory_path: str
 
 
 TOOL_ROUTER_PROMPT = (
@@ -203,16 +209,13 @@ def answer_node(state: LangGraphState) -> LangGraphState:
 
 
 def agent_node(state: LangGraphState) -> LangGraphState:
-    agent_state: AgentState = {
-        "question": state["question"],
-        "document_id": _document_id_from_state(state),
-        "logs": [],
-        "failed_tools": [],
-        "overthink_counts": {},
-        "no_finding_counts": {},
-        "subagent_results": [],
-        "agent_depth": 0,
-    }
+    agent_state = OneRunMemory.initial_state(
+        question=state["question"],
+        document_id=_document_id_from_state(state),
+    )
+    agent_state["context_memory"] = ContextMemory(
+        state.get("context_memory_path")
+    ).load()
 
     for _ in range(MAX_AGENT_NODE_ITERATIONS):
         if agent_state.get("planner_mode") in {"replan", "step_replan"} or "plan" not in agent_state:
@@ -247,6 +250,38 @@ def agent_node(state: LangGraphState) -> LangGraphState:
 
     agent_state["error"] = "agent exceeded graph iteration limit"
     return _agent_graph_failed(state, agent_state)
+
+
+def context_memory_node(state: LangGraphState) -> LangGraphState:
+    memory = ContextMemory(state.get("context_memory_path"))
+    question = state.get("question", "")
+    final_answer = state.get("answer", "")
+    should_record = (
+        state.get("end_status") == "finished"
+        and bool(question.strip())
+        and bool(final_answer.strip())
+    )
+    context_memory = (
+        memory.remember(question=question, final_answer=final_answer)
+        if should_record
+        else memory.load()
+    )
+    return {
+        "context_memory": context_memory,
+        "logs": add_log(
+            state=state,
+            node="context_memory_node",
+            message=(
+                "context memory recorded"
+                if should_record
+                else "context memory skipped"
+            ),
+            extra={
+                "context_memory_count": len(context_memory),
+                "end_status": state.get("end_status"),
+            },
+        ),
+    }
 
 
 def verifier_node(state: LangGraphState) -> LangGraphState:
@@ -308,6 +343,7 @@ def build_graph():
     graph_builder.add_node("tool_executor_node", tool_executor_node)
     graph_builder.add_node("answer_node", answer_node)
     graph_builder.add_node("verifier_node", verifier_node)
+    graph_builder.add_node("context_memory_node", context_memory_node)
 
     graph_builder.add_edge(START, "router_node")
     graph_builder.add_conditional_edges(
@@ -319,7 +355,7 @@ def build_graph():
             "answer_node": "answer_node",
         },
     )
-    graph_builder.add_edge("agent_node", END)
+    graph_builder.add_edge("agent_node", "context_memory_node")
     graph_builder.add_edge("tool_selector_node", "tool_executor_node")
     graph_builder.add_edge("tool_executor_node", "answer_node")
     graph_builder.add_edge("answer_node", "verifier_node")
@@ -327,12 +363,13 @@ def build_graph():
         "verifier_node",
         verifier_decision,
         {
-            "end": END,
+            "end": "context_memory_node",
             "answer_node": "answer_node",
             "tool_selector_node": "tool_selector_node",
             "router_node": "router_node",
         },
     )
+    graph_builder.add_edge("context_memory_node", END)
 
     return graph_builder.compile()
 

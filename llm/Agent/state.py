@@ -80,6 +80,7 @@ class PlanStepState(TypedDict):
 class AgentState(TypedDict, total=False):
     question: str
     document_id: str | None
+    context_memory: list[dict[str, str]]
 
     plan: list[PlanStepState]
     plan_revision: int

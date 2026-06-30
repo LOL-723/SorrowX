@@ -1,7 +1,9 @@
 import json
+import tempfile
 import unittest
 from unittest.mock import patch
 
+from llm.Agent.memory import append_plan_visualization
 from llm.Agent.nodes import agent_loop_node, planner_node
 from llm.Agent.state import (
     AgentState,
@@ -213,7 +215,10 @@ class AgentStateTest(unittest.TestCase):
             "logs": [],
         }
 
-        with patch("llm.Agent.nodes.planner._chat_completion", return_value=response):
+        with (
+            patch("llm.Agent.nodes.planner._chat_completion", return_value=response),
+            patch("llm.Agent.nodes.planner.append_plan_visualization"),
+        ):
             result = planner_node(state)
 
         self.assertEqual(result["agent_status"], "running")
@@ -225,6 +230,56 @@ class AgentStateTest(unittest.TestCase):
         ])
         self.assertEqual(result["current_step_index"], 0)
         self.assertEqual(result["current_step_id"], "step_1")
+
+    def test_planner_payload_includes_context_memory(self) -> None:
+        response = json.dumps(
+            {
+                "steps": [
+                    {"step_id": "step_1", "task": "Use relevant memory to plan"},
+                ],
+            }
+        )
+        context_memory = [
+            {
+                "question": "Historical question",
+                "final_answer": "Historical answer",
+            }
+        ]
+        captured_payload = {}
+
+        def fake_chat_completion(**kwargs):
+            captured_payload.update(json.loads(kwargs["user_message"]))
+            return response
+
+        state: AgentState = {
+            "question": "Plan with memory",
+            "context_memory": context_memory,
+            "logs": [],
+        }
+
+        with (
+            patch("llm.Agent.nodes.planner._chat_completion", side_effect=fake_chat_completion),
+            patch("llm.Agent.nodes.planner.append_plan_visualization"),
+        ):
+            result = planner_node(state)
+
+        self.assertEqual(result["agent_status"], "running")
+        self.assertEqual(captured_payload["context_memory"], context_memory)
+
+    def test_visualization_snapshots_use_separator(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plan_path = f"{temp_dir}/plan.md"
+
+            append_plan_visualization(
+                [{"step_id": "step_1", "task": "Test plan"}],
+                path=plan_path,
+            )
+
+            with open(plan_path, encoding="utf-8") as file:
+                plan_content = file.read()
+
+        self.assertTrue(plan_content.startswith("\n#$#\n"))
+        self.assertIn('"task": "Test plan"', plan_content)
 
     def test_planner_step_replan_preserves_completed_steps(self) -> None:
         response = json.dumps(
@@ -257,7 +312,10 @@ class AgentStateTest(unittest.TestCase):
             "logs": [],
         }
 
-        with patch("llm.Agent.nodes.planner._chat_completion", return_value=response):
+        with (
+            patch("llm.Agent.nodes.planner._chat_completion", return_value=response),
+            patch("llm.Agent.nodes.planner.append_plan_visualization"),
+        ):
             result = planner_node(state)
 
         self.assertEqual(result["agent_status"], "running")

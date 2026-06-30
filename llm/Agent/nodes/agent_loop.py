@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from llm.Agent.memory import OneRunMemory
 from llm.Agent.nodes.universal import _available_tools, _chat_completion, add_log
 from llm.Agent.prompt import AGENT_LOOP_PROMPT
 from llm.Agent.state import (
@@ -25,25 +26,17 @@ def agent_loop_node(state: AgentState) -> AgentState:
         question = state.get("question", "")
         step_id = current_step["step_id"]
         task = current_step["task"]
-        react_results = list(state.get("react_results", []))
-        step_results = list(state.get("step_results", []))
-        overthink_counts = dict(state.get("overthink_counts", {}))
-        no_finding_counts = dict(state.get("no_finding_counts", {}))
-        failed_tools = list(state.get("failed_tools", []))
-        subagent_results = list(state.get("subagent_results", []))
-        agent_depth = int(state.get("agent_depth", 0) or 0)
+        memory = OneRunMemory(state)
         consecutive_think_count = 0
         turn_index = 0
 
         while turn_index < MAX_REACT_TURNS_PER_STEP:
             decision = _decide_next_loop(
                 state=state,
+                memory=memory,
                 question=question,
                 step_id=step_id,
                 task=task,
-                react_results=react_results,
-                overthink_count=overthink_counts.get(step_id, 0),
-                no_finding_count=no_finding_counts.get(step_id, 0),
             )
             turn_index += 1
             loop_result = AgentLoopResult(
@@ -69,21 +62,17 @@ def agent_loop_node(state: AgentState) -> AgentState:
                     task=task,
                     turn_index=turn_index,
                     loop_result=loop_result,
-                    react_results=react_results,
-                    failed_tools=failed_tools,
-                    overthink_counts=overthink_counts,
-                    no_finding_counts=no_finding_counts,
-                    subagent_results=subagent_results,
+                    memory=memory,
                 )
             if signal == "overthink":
                 signal_result = _handle_signal(
                     state=state,
                     step_id=step_id,
-                    overthink_counts=overthink_counts,
+                    memory=memory,
                 )
                 if signal_result is not None:
                     return signal_result
-                react_results = []
+                memory.reset_react_results()
                 consecutive_think_count = 0
                 turn_index = 0
                 continue
@@ -92,10 +81,9 @@ def agent_loop_node(state: AgentState) -> AgentState:
             if signal is not None:
                 raise ValueError(f"Signal is not implemented yet: {signal}")
 
-            no_finding_signal = _update_no_finding_counts(
+            no_finding_signal = memory.update_no_finding(
                 step_id=step_id,
                 no_finding=decision["no_finding"],
-                no_finding_counts=no_finding_counts,
             )
             if no_finding_signal is not None:
                 return _handle_finding_missing_signal(
@@ -104,11 +92,7 @@ def agent_loop_node(state: AgentState) -> AgentState:
                     task=task,
                     turn_index=turn_index,
                     loop_result=loop_result,
-                    react_results=react_results,
-                    failed_tools=failed_tools,
-                    overthink_counts=overthink_counts,
-                    no_finding_counts=no_finding_counts,
-                    subagent_results=subagent_results,
+                    memory=memory,
                 )
 
             decide_type = decision["decide_type"]
@@ -116,18 +100,17 @@ def agent_loop_node(state: AgentState) -> AgentState:
                 consecutive_think_count += 1
                 if consecutive_think_count >= 3:
                     signal_result = _handle_signal(
-                        signal="overthink",
                         state=state,
                         step_id=step_id,
-                        overthink_counts=overthink_counts,
+                        memory=memory,
                     )
                     if signal_result is not None:
                         return signal_result
-                    react_results = []
+                    memory.reset_react_results()
                     consecutive_think_count = 0
                     turn_index = 0
                     continue
-                react_results.append(loop_result)
+                memory.append_loop_result(loop_result)
                 continue
 
             if decide_type == "tool_call":
@@ -138,7 +121,7 @@ def agent_loop_node(state: AgentState) -> AgentState:
                     document_id=state.get("document_id"),
                 )
                 loop_result["observation"] = observation
-                react_results.append(loop_result)
+                memory.append_loop_result(loop_result)
                 tool_error = _observation_error(observation)
                 if tool_error is not None:
                     loop_result["Signal"] = "tool_error"
@@ -148,71 +131,57 @@ def agent_loop_node(state: AgentState) -> AgentState:
                         str,
                         allow_empty=False,
                     )
-                    failed_tools = _append_unique(failed_tools, tool_name)
-                    if agent_depth >= 1:
-                        failed_state = dict(state)
-                        failed_state["failed_tools"] = failed_tools
+                    memory.record_failed_tool(tool_name)
+                    if memory.agent_depth >= 1:
+                        failed_state = memory.apply_to_state(state)
                         return _agent_loop_failed(
                             failed_state,
-                            f"tool_error cannot create subagent at agent_depth {agent_depth}",
+                            f"tool_error cannot create subagent at agent_depth {memory.agent_depth}",
                         )
                     subagent_update = _run_tool_error_subagent(
                         parent_state=state,
+                        memory=memory,
                         question=question,
                         step_id=step_id,
                         task=task,
-                        react_results=react_results,
-                        step_results=step_results,
-                        failed_tools=failed_tools,
-                        overthink_counts=overthink_counts,
                     )
                     if subagent_update.get("agent_status") == "failed":
-                        failed_state = dict(state)
-                        failed_state["failed_tools"] = failed_tools
-                        failed_state["subagent_results"] = subagent_results + [
-                            {
-                                "step_id": step_id,
-                                "task": task,
-                                "status": "failed",
-                                "error": subagent_update.get("error"),
-                            }
-                        ]
+                        memory.append_subagent_result(
+                            step_id=step_id,
+                            task=task,
+                            status="failed",
+                            error=subagent_update.get("error"),
+                        )
+                        failed_state = memory.apply_to_state(state)
                         return _agent_loop_failed(
                             failed_state,
                             "tool_error subagent failed: "
                             f"{subagent_update.get('error') or 'unknown error'}",
                         )
                     subagent_answer = _subagent_answer(subagent_update, step_id)
-                    subagent_results.append(
-                        {
-                            "step_id": step_id,
-                            "task": task,
-                            "status": "done",
-                            "result": subagent_answer,
-                        }
+                    memory.append_subagent_result(
+                        step_id=step_id,
+                        task=task,
+                        status="done",
+                        result=subagent_answer,
                     )
                     updated_plan = _update_step_result(
                         plan=list(state.get("plan", [])),
                         current_step_index=current_step_index,
                         result=subagent_answer,
                     )
-                    step_results.append(
-                        {
-                            "step_id": step_id,
-                            "task": task,
-                            "result": subagent_answer,
-                        }
+                    memory.append_step_result(
+                        step_id=step_id,
+                        task=task,
+                        result=subagent_answer,
                     )
+                    tool_calls = memory.tool_calls()
+                    memory.reset_react_results()
                     return {
                         "plan": updated_plan,
                         "current_react_turn_count": turn_index,
-                        "react_results": [],
-                        "tool_calls": _tool_calls_from_loop_results(react_results),
-                        "step_results": step_results,
-                        "overthink_counts": overthink_counts,
-                        "no_finding_counts": no_finding_counts,
-                        "failed_tools": failed_tools,
-                        "subagent_results": subagent_results,
+                        **memory.state_fields(),
+                        "tool_calls": tool_calls,
                         "phase": "reacting",
                         "agent_status": "running",
                         "logs": add_log(
@@ -221,7 +190,7 @@ def agent_loop_node(state: AgentState) -> AgentState:
                             message="step completed by tool_error subagent",
                             extra={
                                 "current_step_id": step_id,
-                                "failed_tools": failed_tools,
+                                "failed_tools": memory.failed_tools,
                             },
                         ),
                     }
@@ -240,23 +209,18 @@ def agent_loop_node(state: AgentState) -> AgentState:
                     current_step_index=current_step_index,
                     result=answer,
                 )
-                step_results.append(
-                    {
-                        "step_id": step_id,
-                        "task": task,
-                        "result": answer,
-                    }
+                memory.append_step_result(
+                    step_id=step_id,
+                    task=task,
+                    result=answer,
                 )
+                tool_calls = memory.tool_calls()
+                memory.reset_react_results()
                 return {
                     "plan": updated_plan,
                     "current_react_turn_count": turn_index,
-                    "react_results": [],
-                    "tool_calls": _tool_calls_from_loop_results(react_results),
-                    "step_results": step_results,
-                    "overthink_counts": overthink_counts,
-                    "no_finding_counts": no_finding_counts,
-                    "failed_tools": failed_tools,
-                    "subagent_results": subagent_results,
+                    **memory.state_fields(),
+                    "tool_calls": tool_calls,
                     "phase": "reacting",
                     "agent_status": "running",
                     "logs": add_log(
@@ -303,26 +267,24 @@ def _current_step(state: AgentState) -> tuple[int, PlanStepState]:
 
 def _decide_next_loop(
     state: AgentState,
+    memory: OneRunMemory,
     question: str,
     step_id: str,
     task: str,
-    react_results: list[dict[str, Any]],
-    overthink_count: int,
-    no_finding_count: int,
 ) -> dict[str, Any]:
     payload = {
         "question": question,
         "current_step_id": step_id,
         "task": task,
-        "completed_steps": state.get("step_results", []),
-        "react_results": react_results,
-        "previous_thought": _previous_thought(react_results),
-        "no_finding_count": no_finding_count,
+        "completed_steps": memory.step_results,
+        "react_results": memory.react_results,
+        "previous_thought": memory.previous_thought(),
+        "no_finding_count": memory.no_finding_counts.get(step_id, 0),
         "current_correction_instruction": state.get("current_correction_instruction"),
-        "overthink_count": overthink_count,
-        "failed_tools": state.get("failed_tools", []),
-        "agent_depth": state.get("agent_depth", 0),
-        "available_tools": _available_tools(state.get("failed_tools", [])),
+        "overthink_count": memory.overthink_counts.get(step_id, 0),
+        "failed_tools": memory.failed_tools,
+        "agent_depth": memory.agent_depth,
+        "available_tools": _available_tools(memory.failed_tools),
     }
     data = _chat_json(
         system_prompt=AGENT_LOOP_PROMPT,
@@ -348,7 +310,7 @@ def _decide_next_loop(
             str,
             allow_empty=False,
         )
-        if tool_name not in TOOL_REGISTRY or tool_name in state.get("failed_tools", []):
+        if tool_name not in TOOL_REGISTRY or tool_name in memory.failed_tools:
             raise ValueError(f"unknown tool_name: {tool_name}")
     elif tool_name is not None:
         raise ValueError("tool_name must be null unless decide_type is tool_call")
@@ -373,14 +335,6 @@ def _decide_next_loop(
         "arguments": arguments,
         "answer": answer,
     }
-
-
-def _previous_thought(react_results: list[dict[str, Any]]) -> str | None:
-    for react_result in reversed(react_results):
-        thought = react_result.get("thought")
-        if isinstance(thought, str) and thought.strip():
-            return thought
-    return None
 
 
 def _print_agent_thought_trace(
@@ -423,33 +377,15 @@ def _optional_signal(value: Any) -> AgentLoopSignal | None:
 def _handle_signal(
     state: AgentState,
     step_id: str,
-    overthink_counts: dict[str, int],
+    memory: OneRunMemory,
 ) -> AgentState | None:
-    next_count = overthink_counts.get(step_id, 0) + 1
-    overthink_counts[step_id] = next_count
+    next_count = memory.record_overthink(step_id)
     if next_count > 1:
-        failed_state = dict(state)
-        failed_state["overthink_counts"] = overthink_counts
+        failed_state = memory.apply_to_state(state)
         return _agent_loop_failed(
             failed_state,
             "agent loop triggered overthink more than once in the same plan step",
         )
-    return None
-
-
-def _update_no_finding_counts(
-    step_id: str,
-    no_finding: int,
-    no_finding_counts: dict[str, int],
-) -> AgentLoopSignal | None:
-    if no_finding == 0:
-        no_finding_counts[step_id] = 0
-        return None
-
-    next_count = no_finding_counts.get(step_id, 0) + 1
-    no_finding_counts[step_id] = next_count
-    if next_count >= 6:
-        return "finding_missing"
     return None
 
 
@@ -459,24 +395,21 @@ def _handle_overturning_signal(
     task: str,
     turn_index: int,
     loop_result: dict[str, Any],
-    react_results: list[dict[str, Any]],
-    failed_tools: list[str],
-    overthink_counts: dict[str, int],
-    no_finding_counts: dict[str, int],
-    subagent_results: list[dict[str, Any]],
+    memory: OneRunMemory,
 ) -> AgentState:
     replan_count = int(state.get("replan_count", 0) or 0)
     if replan_count >= MAX_REPLAN_COUNT:
-        failed_state = dict(state)
+        failed_state = memory.apply_to_state(state)
         failed_state["replan_count"] = replan_count
-        failed_state["no_finding_counts"] = no_finding_counts
         return _agent_loop_failed(
             failed_state,
             "agent loop triggered overturning replan more than once",
         )
 
-    trigger_trace = react_results + [loop_result]
-    last_observation = _last_tool_observation(react_results)
+    trigger_trace = memory.trigger_trace(loop_result)
+    last_observation = memory.last_tool_observation()
+    tool_calls = memory.tool_calls()
+    memory.reset_react_results()
     return {
         "planner_mode": "replan",
         "replan_count": replan_count + 1,
@@ -489,12 +422,8 @@ def _handle_overturning_signal(
         },
         "last_tool_observation": last_observation,
         "current_react_turn_count": turn_index,
-        "react_results": [],
-        "tool_calls": _tool_calls_from_loop_results(react_results),
-        "overthink_counts": overthink_counts,
-        "no_finding_counts": no_finding_counts,
-        "failed_tools": failed_tools,
-        "subagent_results": subagent_results,
+        **memory.state_fields(),
+        "tool_calls": tool_calls,
         "phase": "replanning",
         "agent_status": "running",
         "logs": add_log(
@@ -515,23 +444,19 @@ def _handle_finding_missing_signal(
     task: str,
     turn_index: int,
     loop_result: dict[str, Any],
-    react_results: list[dict[str, Any]],
-    failed_tools: list[str],
-    overthink_counts: dict[str, int],
-    no_finding_counts: dict[str, int],
-    subagent_results: list[dict[str, Any]],
+    memory: OneRunMemory,
 ) -> AgentState:
     step_replan_count = int(state.get("step_replan_count", 0) or 0)
     if step_replan_count >= MAX_STEP_REPLAN_COUNT:
-        failed_state = dict(state)
+        failed_state = memory.apply_to_state(state)
         failed_state["step_replan_count"] = step_replan_count
-        failed_state["no_finding_counts"] = no_finding_counts
         return _agent_loop_failed(
             failed_state,
             "agent loop triggered finding_missing step replan more than once",
         )
 
-    trigger_trace = react_results + [loop_result]
+    trigger_trace = memory.trigger_trace(loop_result)
+    memory.react_results = trigger_trace
     return {
         "planner_mode": "step_replan",
         "step_replan_count": step_replan_count + 1,
@@ -540,15 +465,10 @@ def _handle_finding_missing_signal(
             "current_step_id": step_id,
             "current_step": {"step_id": step_id, "task": task},
             "react_results": trigger_trace,
-            "no_finding_count": no_finding_counts.get(step_id, 0),
+            "no_finding_count": memory.no_finding_counts.get(step_id, 0),
         },
         "current_react_turn_count": turn_index,
-        "react_results": trigger_trace,
-        "tool_calls": _tool_calls_from_loop_results(react_results),
-        "overthink_counts": overthink_counts,
-        "no_finding_counts": no_finding_counts,
-        "failed_tools": failed_tools,
-        "subagent_results": subagent_results,
+        **memory.state_fields(),
         "phase": "replanning",
         "agent_status": "running",
         "logs": add_log(
@@ -558,18 +478,10 @@ def _handle_finding_missing_signal(
             extra={
                 "current_step_id": step_id,
                 "step_replan_count": step_replan_count + 1,
-                "no_finding_count": no_finding_counts.get(step_id, 0),
+                "no_finding_count": memory.no_finding_counts.get(step_id, 0),
             },
         ),
     }
-
-
-def _last_tool_observation(react_results: list[dict[str, Any]]) -> str | None:
-    for react_result in reversed(react_results):
-        observation = react_result.get("observation")
-        if isinstance(observation, str) and observation.strip():
-            return observation
-    return None
 
 
 def _observation_error(observation: str) -> str | None:
@@ -589,37 +501,21 @@ def _observation_error(observation: str) -> str | None:
     return error
 
 
-def _append_unique(values: list[str], value: str) -> list[str]:
-    if value in values:
-        return values
-    return values + [value]
-
-
 def _run_tool_error_subagent(
     parent_state: AgentState,
+    memory: OneRunMemory,
     question: str,
     step_id: str,
     task: str,
-    react_results: list[dict[str, Any]],
-    step_results: list[dict[str, Any]],
-    failed_tools: list[str],
-    overthink_counts: dict[str, int],
 ) -> AgentState:
     subagent_step = PlanStep(step_id=step_id, task=task).model_dump()
-    subagent_state: AgentState = {
-        "question": question,
-        "document_id": parent_state.get("document_id"),
-        "plan": [subagent_step],
-        "current_step_index": 0,
-        "current_step_id": step_id,
-        "react_results": list(react_results),
-        "step_results": list(step_results),
-        "failed_tools": list(failed_tools),
-        "overthink_counts": dict(overthink_counts),
-        "no_finding_counts": dict(parent_state.get("no_finding_counts", {})),
-        "agent_depth": 1,
-        "logs": parent_state.get("logs", []),
-    }
+    subagent_state = memory.subagent_state(
+        parent_state=parent_state,
+        question=question,
+        step_id=step_id,
+        task=task,
+        subagent_step=subagent_step,
+    )
     return agent_loop_node(subagent_state)
 
 
@@ -667,19 +563,6 @@ def _execute_tool_call(
         ensure_ascii=False,
         default=str,
     )
-
-
-def _tool_calls_from_loop_results(
-    react_results: list[dict[str, Any]],
-) -> list[str]:
-    tool_calls: list[str] = []
-    for react_result in react_results:
-        tool_name = react_result.get("tool_name")
-        if not isinstance(tool_name, str):
-            continue
-        if tool_name not in tool_calls:
-            tool_calls.append(tool_name)
-    return tool_calls
 
 
 def _chat_json(system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:

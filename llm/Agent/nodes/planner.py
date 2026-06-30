@@ -2,6 +2,7 @@ import json
 
 from pydantic import ValidationError
 
+from llm.Agent.memory import append_plan_visualization
 from llm.Agent.nodes.universal import _available_tools, _chat_completion, add_log
 from llm.Agent.prompt import PLANNER_PROMPT
 from llm.Agent.state import (
@@ -34,6 +35,7 @@ def planner_node(state: AgentState) -> AgentState:
             planner_mode=planner_mode,
             steps=agent_plan.steps,
         )
+        append_plan_visualization(org_planstate)
 
         current_revision = int(state.get("plan_revision", 0) or 0)
         is_replan = planner_mode != "initial" or current_revision > 0
@@ -105,6 +107,7 @@ def _planner_payload(
         "planner_mode": planner_mode,
         "question": question,
         "document_id": state.get("document_id"),
+        "context_memory": state.get("context_memory", []),
         "available_tools": _available_tools(),
     }
     if planner_mode in {"replan", "step_replan"}:
