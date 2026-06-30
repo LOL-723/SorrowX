@@ -3,7 +3,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from core.config import settings
+from set.config import settings
 from llm import langgraph
 
 

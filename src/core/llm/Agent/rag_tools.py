@@ -1,6 +1,6 @@
 from typing import Any
 
-from core.config import settings
+from set.config import settings
 from llm.rag_service import rag_service
 
 

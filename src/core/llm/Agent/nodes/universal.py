@@ -2,7 +2,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from core.config import settings
+from set.config import settings
 from llm.Agent.state import AgentState
 from llm.tools import TOOL_ARGUMENTS, TOOL_DESCRIPTIONS
 

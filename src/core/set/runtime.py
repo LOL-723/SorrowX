@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_VENV = PROJECT_ROOT / ".venv"
 EXPECTED_PYTHON = PROJECT_VENV / "Scripts" / "python.exe"
 
@@ -21,7 +21,7 @@ def ensure_project_runtime() -> None:
         raise RuntimeError(
             "FastAPI is running with a different Python environment. "
             f"Current: {current_python}. Expected: {expected_python}. "
-            "Start the app with scripts/dev.ps1 or run "
+            "Start the app with src/core/scripts/dev.ps1 or run "
             r".\.venv\Scripts\python.exe -m uvicorn main:app --reload"
         )
 

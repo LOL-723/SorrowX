@@ -1,4 +1,12 @@
-from core.runtime import ensure_project_runtime
+import sys
+from pathlib import Path
+
+
+SRC_CORE = Path(__file__).resolve().parent / "src" / "core"
+if str(SRC_CORE) not in sys.path:
+    sys.path.insert(0, str(SRC_CORE))
+
+from set.runtime import ensure_project_runtime
 
 ensure_project_runtime()
 

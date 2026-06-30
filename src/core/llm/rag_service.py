@@ -9,8 +9,8 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from core.config import settings
-from core.runtime import EXPECTED_PYTHON
+from set.config import settings
+from set.runtime import EXPECTED_PYTHON
 from schemas.rag import RagChunk, RagSource, RagUploadResponse
 
 
