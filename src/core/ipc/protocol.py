@@ -72,6 +72,26 @@ def make_error_response(
     }
 
 
+def make_event_push(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "event",
+        "event": event,
+    }
+
+
+def is_event_push(message: dict[str, Any]) -> bool:
+    return message.get("kind") == "event"
+
+
+def read_event_push(message: dict[str, Any]) -> dict[str, Any]:
+    if not is_event_push(message):
+        raise ProtocolError("message is not an event push")
+    event = message.get("event")
+    if not isinstance(event, dict):
+        raise ProtocolError("event push event must be an object")
+    return event
+
+
 def encode_message(message: dict[str, Any]) -> bytes:
     return (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode(
         "utf-8"

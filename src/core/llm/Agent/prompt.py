@@ -170,6 +170,8 @@ tool has already run unless that result already appears in memory.
 
 The user message will provide:
 - question: the original user question
+- context_memory: recent previous question/final_answer records that may help
+  answer questions about prior conversation context
 - current_step_id: the step id that must be executed now
 - task: the current plan step task
 - completed_steps: already completed plan steps and their answers
@@ -228,7 +230,11 @@ Rules:
   tool.
 - Do not invent tools that are not in available_tools.
 - Do not fabricate tool results, observations, completed steps, or answers.
-- Use completed_steps and react_results as the only historical evidence.
+- Use context_memory only for prior-conversation context, such as answering what
+  the user asked earlier. Do not treat context_memory as verified external facts
+  for unrelated tasks.
+- Use completed_steps and react_results as the only historical evidence for the
+  current plan execution.
 - Do not output markdown, comments, or explanation outside the JSON object.
 
 Return exactly one valid JSON object and nothing else.

@@ -7,14 +7,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
+from daemon.events import Event, EventBus, EventHandler
 from llm import langgraph
 from llm.Agent.memory import ContextMemory, OneRunMemory
 from llm.Agent.state import AgentState
 
 
 RUNS_DIR = Path("runs")
-Event = dict[str, Any]
-EventHandler = Callable[[Event], None]
 
 
 @dataclass(frozen=True)
@@ -25,21 +24,10 @@ class AgentRunResult:
     events_path: Path
 
 
-class EventBus:
-    def __init__(self) -> None:
-        self._subscribers: list[EventHandler] = []
-
-    def subscribe(self, handler: EventHandler) -> None:
-        self._subscribers.append(handler)
-
-    def publish(self, event: Event) -> None:
-        for handler in self._subscribers:
-            handler(event)
-
-
 class EventWriter:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, run_id: str | None = None) -> None:
         self.path = Path(path)
+        self.run_id = run_id
         self._file: TextIO | None = None
 
     def __enter__(self) -> "EventWriter":
@@ -57,6 +45,8 @@ class EventWriter:
 
     def handle(self, event: Event) -> None:
         if self._file is None:
+            return
+        if self.run_id is not None and event.get("run_id") != self.run_id:
             return
         self._file.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
         self._file.flush()
@@ -119,41 +109,54 @@ class AgentRuner:
             Path(context_memory_path) if context_memory_path is not None else None
         )
 
-    def run(self, goal: str) -> AgentRunResult:
+    def run(
+        self,
+        goal: str,
+        *,
+        run_id: str | None = None,
+        event_bus: EventBus | None = None,
+    ) -> AgentRunResult:
         if not goal or not goal.strip():
             raise ValueError("goal cannot be empty")
 
-        run_id = new_run_id()
+        run_id = run_id or new_run_id()
         run_path = self.runs_dir / run_id
         events_path = run_path / "events.jsonl"
-        bus = EventBus()
+        bus = event_bus or EventBus()
+        subscribed_handlers: list[EventHandler] = []
         for handler in self.extra_handlers:
             bus.subscribe(handler)
+            subscribed_handlers.append(handler)
 
         status = "failed"
         answer = ""
         error: str | None = None
 
-        with EventWriter(events_path) as writer:
-            writer.subscribe(bus)
-            bus.publish(_event("run.started", run_id, goal=goal))
-            try:
-                answer = self._run_agent(goal=goal, run_id=run_id, bus=bus)
-                bus.publish(_event("agent.answer", run_id, answer=answer))
-                status = "finished"
-            except Exception as exc:
-                error = str(exc)
-                bus.publish(_event("agent.error", run_id, error=error))
-            finally:
-                bus.publish(
-                    _event(
-                        "run.finished",
-                        run_id,
-                        status=status,
-                        answer=answer,
-                        error=error,
+        try:
+            with EventWriter(events_path, run_id=run_id) as writer:
+                writer.subscribe(bus)
+                subscribed_handlers.append(writer.handle)
+                bus.publish(_event("run.started", run_id, goal=goal))
+                try:
+                    answer = self._run_agent(goal=goal, run_id=run_id, bus=bus)
+                    bus.publish(_event("agent.answer", run_id, answer=answer))
+                    status = "finished"
+                except Exception as exc:
+                    error = str(exc)
+                    bus.publish(_event("agent.error", run_id, error=error))
+                finally:
+                    bus.publish(
+                        _event(
+                            "run.finished",
+                            run_id,
+                            status=status,
+                            answer=answer,
+                            error=error,
+                        )
                     )
-                )
+        finally:
+            for handler in reversed(subscribed_handlers):
+                bus.unsubscribe(handler)
 
         if status != "finished":
             raise RuntimeError(error or "agent run failed")

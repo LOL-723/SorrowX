@@ -1,0 +1,19 @@
+{"type": "run.started", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:08.699361+00:00", "goal": "现在几点了？"}
+{"type": "agent.node.started", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:08.699852+00:00", "node": "planner_node"}
+{"type": "agent.log", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.660584+00:00", "source": "planner_node", "message": "initial plan created", "extra": {"planner_mode": "initial", "plan_revision": 1, "step_count": 1}}
+{"type": "agent.node.finished", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.660754+00:00", "node": "planner_node", "status": "running", "phase": "planning"}
+{"type": "agent.node.started", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.664875+00:00", "node": "select_next_step_node"}
+{"type": "agent.log", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.665128+00:00", "source": "select_next_step_node", "message": "next pending step selected", "extra": {"current_step_index": 0, "current_step_id": "step_1"}}
+{"type": "agent.node.finished", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.665278+00:00", "node": "select_next_step_node", "status": "running", "phase": "selecting_step"}
+{"type": "agent.step.started", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.665359+00:00", "step_id": "step_1", "task": "调用 get_current_time 获取当前时间"}
+{"type": "agent.node.started", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:11.665488+00:00", "node": "agent_loop_node"}
+{"type": "agent.loop.thought", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:14.325014+00:00", "step_id": "step_1", "turn": 1, "decision": "tool_call", "signal": "none", "tool": "get_current_time", "thought": "用户询问当前时间，任务要求调用get_current_time。直接调用工具获取当前时间。"}
+{"type": "agent.loop.thought", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.836467+00:00", "step_id": "step_1", "turn": 2, "decision": "finish", "signal": "none", "tool": "none", "thought": "已经通过工具获取到北京时间2026-07-03 18:43:14，步骤任务完成。"}
+{"type": "agent.log", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.836916+00:00", "source": "agent_loop_node", "message": "step agent loop completed", "extra": {"current_step_id": "step_1", "agent_loop_turn_count": 2}}
+{"type": "agent.node.finished", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.837080+00:00", "node": "agent_loop_node", "status": "running", "phase": "reacting"}
+{"type": "agent.step.finished", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.837220+00:00", "step_id": "step_1", "result": "当前北京时间是2026年7月3日18点43分14秒。"}
+{"type": "agent.node.started", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.837381+00:00", "node": "select_next_step_node"}
+{"type": "agent.log", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.837496+00:00", "source": "select_next_step_node", "message": "no pending step found", "extra": {}}
+{"type": "agent.node.finished", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:17.837632+00:00", "node": "select_next_step_node", "status": "running", "phase": "selecting_step"}
+{"type": "agent.answer", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:19.838981+00:00", "answer": "当前北京时间是2026年7月3日18点43分14秒。"}
+{"type": "run.finished", "run_id": "20260703-104308-652406", "ts": "2026-07-03T10:43:19.839374+00:00", "status": "finished", "answer": "当前北京时间是2026年7月3日18点43分14秒。", "error": null}

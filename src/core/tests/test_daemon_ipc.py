@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import os
 import socket
 import subprocess
@@ -5,8 +7,16 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ipc.client import CoreClient
+from ipc.protocol import (
+    decode_message,
+    encode_message,
+    make_request,
+    read_event_push,
+    read_result_response,
+)
 
 
 CORE_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +41,85 @@ class DaemonIpcTests(unittest.TestCase):
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=5)
+
+
+class DaemonAgentRunIpcTests(unittest.IsolatedAsyncioTestCase):
+    async def test_agent_run_returns_run_id_then_pushes_events(self) -> None:
+        port = _free_port()
+
+        class FakeAgentRuner:
+            def run(self, goal, *, run_id=None, event_bus=None):
+                event_bus.publish(
+                    {
+                        "type": "run.started",
+                        "run_id": run_id,
+                        "goal": goal,
+                    }
+                )
+                event_bus.publish(
+                    {
+                        "type": "run.finished",
+                        "run_id": run_id,
+                        "status": "finished",
+                        "answer": "ok",
+                        "error": None,
+                    }
+                )
+
+        from daemon.main import run_daemon
+
+        with (
+            patch("llm.Agent.AgentRuner.AgentRuner", FakeAgentRuner),
+            patch("llm.Agent.AgentRuner.new_run_id", return_value="run-test"),
+        ):
+            daemon_task = asyncio.create_task(run_daemon(port=port))
+            try:
+                await asyncio.to_thread(_wait_for_ping, port)
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.write(
+                    encode_message(
+                        make_request(
+                            "agent.run",
+                            {
+                                "client": "test-client",
+                                "goal": "hello agent",
+                            },
+                            request_id="request-run",
+                        )
+                    )
+                )
+                await writer.drain()
+
+                response = decode_message(await reader.readline())
+                result = read_result_response(response, expected_id="request-run")
+                self.assertEqual(result["run_id"], "run-test")
+
+                started = read_event_push(decode_message(await reader.readline()))
+                finished = read_event_push(decode_message(await reader.readline()))
+                self.assertEqual(started["type"], "run.started")
+                self.assertEqual(started["run_id"], "run-test")
+                self.assertEqual(finished["type"], "run.finished")
+                self.assertEqual(finished["status"], "finished")
+
+                writer.write(
+                    encode_message(
+                        make_request("core.shutdown", request_id="request-shutdown")
+                    )
+                )
+                await writer.drain()
+                shutdown = read_result_response(
+                    decode_message(await reader.readline()),
+                    expected_id="request-shutdown",
+                )
+                self.assertEqual(shutdown["status"], "shutting_down")
+                writer.close()
+                await writer.wait_closed()
+                await asyncio.wait_for(daemon_task, timeout=5)
+            finally:
+                if not daemon_task.done():
+                    daemon_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await daemon_task
 
 
 def _start_daemon(port: int) -> subprocess.Popen[str]:

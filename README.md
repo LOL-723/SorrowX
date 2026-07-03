@@ -25,6 +25,7 @@ Run a one-line daemon ping from cmd:
 
 ```cmd
 sorrow ping
+sorrow run "hello agent"
 sorrow shutdown
 ```
 
@@ -32,8 +33,13 @@ Run the same command from PowerShell:
 
 ```powershell
 .\sorrow.ps1 ping
+.\sorrow.ps1 run "hello agent"
 .\sorrow.ps1 shutdown
 ```
 
 The first ping starts the core daemon automatically. The CLI process exits after
-the command finishes; the daemon remains running until it is stopped manually:
+the command finishes; the daemon remains running until it is stopped manually.
+
+`sorrow run` also starts the daemon automatically when needed. The CLI sends the
+goal to the daemon with JSON-RPC over NDJSON, keeps the TCP connection open, and
+prints Agent events streamed back by the daemon until the run finishes.

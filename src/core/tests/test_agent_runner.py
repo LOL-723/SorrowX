@@ -161,6 +161,53 @@ class AgentRunerTests(unittest.TestCase):
         self.assertEqual(update["plan"][0]["status"], "done")
         self.assertEqual(update["plan"][0]["result"], "final")
 
+    def test_agent_loop_passes_recent_context_memory_to_decision_payload(self) -> None:
+        seen_payloads = []
+        state = {
+            "question": "我刚才问你什么问题了?",
+            "context_memory": [
+                {
+                    "question": f"old-{index}",
+                    "final_answer": f"answer-{index}",
+                }
+                for index in range(10)
+            ],
+            "plan": [
+                {
+                    "step_id": "step_1",
+                    "task": "answer from recent context memory",
+                    "status": "pending",
+                    "result": None,
+                    "retry_count": 0,
+                }
+            ],
+            "current_step_index": 0,
+            "current_step_id": "step_1",
+            "logs": [],
+        }
+
+        def fake_chat_json(system_prompt, payload):
+            seen_payloads.append(payload)
+            return {
+                "thought": "The recent context memory contains the previous question.",
+                "decide_type": "finish",
+                "Signal": None,
+                "no_finding": 0,
+                "tool_name": None,
+                "arguments": {},
+                "answer": "old-9",
+            }
+
+        with patch.object(agent_loop, "_chat_json", side_effect=fake_chat_json):
+            update = agent_loop.agent_loop_node(state)
+
+        self.assertEqual(update["plan"][0]["status"], "done")
+        self.assertEqual(update["plan"][0]["result"], "old-9")
+        self.assertEqual(
+            [record["question"] for record in seen_payloads[0]["context_memory"]],
+            [f"old-{index}" for index in range(2, 10)],
+        )
+
     def test_stdout_printer_renders_thought_event_like_legacy_trace(self) -> None:
         printer = StdoutPrinter()
         stream = StringIO()

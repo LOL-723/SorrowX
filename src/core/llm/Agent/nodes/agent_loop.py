@@ -275,6 +275,7 @@ def _decide_next_loop(
 ) -> dict[str, Any]:
     payload = {
         "question": question,
+        "context_memory": _recent_context_memory(state),
         "current_step_id": step_id,
         "task": task,
         "completed_steps": memory.step_results,
@@ -336,6 +337,27 @@ def _decide_next_loop(
         "arguments": arguments,
         "answer": answer,
     }
+
+
+def _recent_context_memory(state: AgentState, *, limit: int = 8) -> list[dict[str, str]]:
+    records = state.get("context_memory", [])
+    if not isinstance(records, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        question = record.get("question")
+        final_answer = record.get("final_answer")
+        if isinstance(question, str) and isinstance(final_answer, str):
+            normalized.append(
+                {
+                    "question": question,
+                    "final_answer": final_answer,
+                }
+            )
+    return normalized[-limit:]
 
 
 def _print_agent_thought_trace(

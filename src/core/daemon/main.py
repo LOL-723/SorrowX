@@ -14,6 +14,7 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        client_id = state.event_hub.register_client(writer)
         try:
             while not reader.at_eof():
                 line = await reader.readline()
@@ -21,7 +22,11 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                     break
                 try:
                     message = decode_message(line)
-                    handler_result = dispatch_rpc(message, state)
+                    handler_result = dispatch_rpc(
+                        message,
+                        state,
+                        client_id=client_id,
+                    )
                 except ProtocolError as exc:
                     handler_result = _protocol_error_result(exc)
 
@@ -31,8 +36,12 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                     shutdown_event.set()
                     break
         finally:
+            state.event_hub.remove_client(client_id)
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     server = await asyncio.start_server(handle_client, host=host, port=port)
     async with server:

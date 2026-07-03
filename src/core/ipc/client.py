@@ -53,6 +53,69 @@ class CoreClient:
         return RpcCallResult(result=result, elapsed_ms=elapsed_ms)
 
 
+class CoreStreamClient:
+    def __init__(
+        self,
+        *,
+        host: str | None = None,
+        port: int | None = None,
+        connect_timeout: float = 3.0,
+        read_timeout: float | None = None,
+    ) -> None:
+        self.host = host or get_default_host()
+        self.port = port if port is not None else get_default_port()
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
+        self._sock: socket.socket | None = None
+
+    def __enter__(self) -> "CoreStreamClient":
+        self.connect()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def connect(self) -> None:
+        if self._sock is not None:
+            return
+        self._sock = socket.create_connection(
+            (self.host, self.port),
+            timeout=self.connect_timeout,
+        )
+        self._sock.settimeout(self.read_timeout)
+
+    def close(self) -> None:
+        if self._sock is None:
+            return
+        try:
+            self._sock.close()
+        finally:
+            self._sock = None
+
+    def send_request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> str | int:
+        sock = self._require_socket()
+        request = make_request(method, params)
+        sock.sendall(encode_message(request))
+        return request["id"]
+
+    def read_message(self, *, timeout: float | None = None) -> dict[str, Any]:
+        sock = self._require_socket()
+        response_line = _recv_line(
+            sock,
+            timeout=self.read_timeout if timeout is None else timeout,
+        )
+        return decode_message(response_line)
+
+    def _require_socket(self) -> socket.socket:
+        if self._sock is None:
+            raise RuntimeError("stream client is not connected")
+        return self._sock
+
+
 def get_default_host() -> str:
     return os.environ.get("SORROW_HOST", DEFAULT_HOST)
 
@@ -70,13 +133,17 @@ def get_default_port() -> int:
     return port
 
 
-def _recv_line(sock: socket.socket, *, timeout: float) -> bytes:
-    deadline = time.monotonic() + timeout
+def _recv_line(sock: socket.socket, *, timeout: float | None) -> bytes:
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    sock.settimeout(timeout)
     chunks: list[bytes] = []
-    while time.monotonic() < deadline:
-        chunk = sock.recv(1)
+    while deadline is None or time.monotonic() < deadline:
+        try:
+            chunk = sock.recv(1)
+        except socket.timeout as exc:
+            raise TimeoutError("timed out waiting for daemon response") from exc
         if not chunk:
-            break
+            raise ConnectionError("daemon connection closed")
         chunks.append(chunk)
         if chunk == b"\n":
             return b"".join(chunks)

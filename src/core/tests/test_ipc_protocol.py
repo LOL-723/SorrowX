@@ -4,9 +4,12 @@ from ipc.protocol import (
     JsonRpcError,
     decode_message,
     encode_message,
+    is_event_push,
+    make_event_push,
     make_error_response,
     make_request,
     make_result_response,
+    read_event_push,
     read_result_response,
     validate_request,
 )
@@ -40,6 +43,14 @@ class IpcProtocolTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, -32601)
         self.assertEqual(ctx.exception.message, "missing")
+
+    def test_event_push_round_trip_uses_ndjson(self) -> None:
+        event = {"type": "run.started", "run_id": "run-1"}
+        encoded = encode_message(make_event_push(event))
+        decoded = decode_message(encoded)
+
+        self.assertTrue(is_event_push(decoded))
+        self.assertEqual(read_event_push(decoded), event)
 
 
 if __name__ == "__main__":
