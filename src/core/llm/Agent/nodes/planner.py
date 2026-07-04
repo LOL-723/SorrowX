@@ -28,6 +28,7 @@ def planner_node(state: AgentState) -> AgentState:
             system_prompt=PLANNER_PROMPT,
             user_message=json.dumps(payload, ensure_ascii=False),
             response_format={"type": "json_object"},
+            tool_count=len(payload["available_tools"]),
         )
         agent_plan = _parse_agent_plan(content)
         org_planstate = _planned_steps_for_mode(

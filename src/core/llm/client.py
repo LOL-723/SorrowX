@@ -5,6 +5,7 @@ from openai import OpenAI
 
 from set.config import settings
 from llm import langgraph
+from trace.recorder import current_run_id, get_trace_recorder
 
 
 class LLMClient:
@@ -39,11 +40,24 @@ class LLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_message})
 
-        response = self.client.chat.completions.create(
+        run_id = current_run_id()
+        recorder = get_trace_recorder()
+        call_id = recorder.record_core_to_llm(
+            run_id,
             model=self.model,
-            messages=messages,
-            temperature=self.temperature,
+            message_count=len(messages),
+            tool_count=0,
         )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+            )
+        except Exception as exc:
+            recorder.record_llm_to_core(run_id, call_id=call_id, error=str(exc))
+            raise
+        recorder.record_llm_to_core(run_id, call_id=call_id, usage=getattr(response, "usage", None))
         return response.choices[0].message.content or ""
 
     def stream_chat(
@@ -59,12 +73,24 @@ class LLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_message})
 
-        stream = self.client.chat.completions.create(
+        run_id = current_run_id()
+        recorder = get_trace_recorder()
+        call_id = recorder.record_core_to_llm(
+            run_id,
             model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            stream=True,
+            message_count=len(messages),
+            tool_count=0,
         )
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                stream=True,
+            )
+        except Exception as exc:
+            recorder.record_llm_to_core(run_id, call_id=call_id, error=str(exc))
+            raise
 
         for chunk in stream:
             if not chunk.choices:
@@ -73,6 +99,7 @@ class LLMClient:
             content = chunk.choices[0].delta.content
             if content:
                 yield content
+        recorder.record_llm_to_core(run_id, call_id=call_id, usage=None)
 
     def Agent_Ask(
         self,

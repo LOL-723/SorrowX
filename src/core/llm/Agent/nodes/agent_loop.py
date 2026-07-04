@@ -615,6 +615,7 @@ def _chat_json(system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         system_prompt=system_prompt,
         user_message=json.dumps(payload, ensure_ascii=False),
         response_format={"type": "json_object"},
+        tool_count=len(payload.get("available_tools", [])),
     )
     try:
         data = json.loads(content)

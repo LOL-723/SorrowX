@@ -5,6 +5,7 @@ from openai import OpenAI
 from set.config import settings
 from llm.Agent.state import AgentState
 from llm.tools import TOOL_ARGUMENTS, TOOL_DESCRIPTIONS
+from trace.recorder import current_run_id, get_trace_recorder
 
 
 def add_log(
@@ -40,6 +41,8 @@ def _chat_completion(
     system_prompt: str,
     user_message: str,
     response_format: dict[str, str] | None = None,
+    *,
+    tool_count: int = 0,
 ) -> str:
     request: dict[str, Any] = {
         "model": settings.LLM_MODEL,
@@ -52,7 +55,20 @@ def _chat_completion(
     if response_format is not None:
         request["response_format"] = response_format
 
-    response = _openai_client().chat.completions.create(**request)
+    run_id = current_run_id()
+    recorder = get_trace_recorder()
+    call_id = recorder.record_core_to_llm(
+        run_id,
+        model=settings.LLM_MODEL,
+        message_count=len(request["messages"]),
+        tool_count=tool_count,
+    )
+    try:
+        response = _openai_client().chat.completions.create(**request)
+    except Exception as exc:
+        recorder.record_llm_to_core(run_id, call_id=call_id, error=str(exc))
+        raise
+    recorder.record_llm_to_core(run_id, call_id=call_id, usage=getattr(response, "usage", None))
     return response.choices[0].message.content or ""
 
 

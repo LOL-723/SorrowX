@@ -3,6 +3,8 @@ from typing import Callable
 
 from cli.event_rendering import CliEventPrinter
 from cli.formatting import format_ping_reply
+from core.trace.formatting import format_trace_entry, format_trace_summary
+from core.trace.reader import list_traces, read_trace
 from core.ipc.client import CoreClient, CoreStreamClient, get_default_host, get_default_port
 from core.ipc.daemon_process import ensure_daemon_running
 from core.ipc.protocol import is_event_push, read_event_push, read_result_response
@@ -59,6 +61,42 @@ def run_command(argv: list[str]) -> int:
     except Exception as exc:
         print(f"Agent run failed: {exc}", flush=True)
         return 1
+
+
+def trace_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="sorrow trace")
+    subparsers = parser.add_subparsers(dest="action")
+    show_parser = subparsers.add_parser("show")
+    show_parser.add_argument("run_id")
+    args = parser.parse_args(argv)
+
+    if args.action == "show":
+        return _trace_show_command(args.run_id)
+    return _trace_list_command()
+
+
+def _trace_list_command() -> int:
+    summaries = list_traces()
+    if not summaries:
+        print("No trace records found.", flush=True)
+        return 0
+    for summary in summaries:
+        print(format_trace_summary(summary), flush=True)
+    return 0
+
+
+def _trace_show_command(run_id: str) -> int:
+    try:
+        entries = read_trace(run_id)
+    except FileNotFoundError as exc:
+        print(str(exc), flush=True)
+        return 1
+    except ValueError as exc:
+        print(f"Invalid run_id: {exc}", flush=True)
+        return 1
+    for entry in entries:
+        print(format_trace_entry(entry), flush=True)
+    return 0
 
 
 def _run_agent_stream(
@@ -164,4 +202,5 @@ COMMANDS: dict[str, CommandHandler] = {
     "ping": ping_command,
     "run": run_command,
     "shutdown": shutdown_command,
+    "trace": trace_command,
 }

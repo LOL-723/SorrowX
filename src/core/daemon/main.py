@@ -20,8 +20,12 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                 line = await reader.readline()
                 if not line:
                     break
+                request_trace_entry = None
+                request_run_id = None
                 try:
                     message = decode_message(line)
+                    request_trace_entry = state.trace_recorder.prepare_client_to_core(message)
+                    request_run_id = _run_id_from_request(message)
                     handler_result = dispatch_rpc(
                         message,
                         state,
@@ -30,6 +34,17 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                 except ProtocolError as exc:
                     handler_result = _protocol_error_result(exc)
 
+                response_run_id = _run_id_from_response(handler_result.response)
+                trace_run_id = response_run_id or request_run_id
+                if trace_run_id is not None:
+                    state.trace_recorder.write_prepared(
+                        trace_run_id,
+                        request_trace_entry,
+                    )
+                    state.trace_recorder.record_core_to_client_reply(
+                        trace_run_id,
+                        handler_result.response,
+                    )
                 writer.write(encode_message(handler_result.response))
                 await writer.drain()
                 if handler_result.should_shutdown:
@@ -72,6 +87,22 @@ def _protocol_error_result(exc: ProtocolError) -> HandlerResult:
             message=str(exc),
         )
     )
+
+
+def _run_id_from_request(message: dict[str, object]) -> str | None:
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return None
+    run_id = params.get("run_id")
+    return run_id if isinstance(run_id, str) and run_id else None
+
+
+def _run_id_from_response(message: dict[str, object]) -> str | None:
+    result = message.get("result")
+    if not isinstance(result, dict):
+        return None
+    run_id = result.get("run_id")
+    return run_id if isinstance(run_id, str) and run_id else None
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from threading import RLock
 from typing import Any, Callable
 
 from ipc.protocol import encode_message, make_event_push
+from trace.recorder import TraceRecorder
 
 
 Event = dict[str, Any]
@@ -56,9 +57,11 @@ class EventHub:
         *,
         loop: asyncio.AbstractEventLoop | None = None,
         max_queue_size: int = 256,
+        trace_recorder: TraceRecorder | None = None,
     ) -> None:
         self._loop = loop
         self._max_queue_size = max_queue_size
+        self._trace_recorder = trace_recorder
         self._clients: dict[str, ClientConnection] = {}
         self._subscriptions: dict[str, Subscription] = {}
 
@@ -144,6 +147,12 @@ class EventHub:
                 continue
             try:
                 connection.queue.put_nowait(envelope)
+                if self._trace_recorder is not None:
+                    self._trace_recorder.record_core_to_client_event(
+                        event,
+                        subscription_id=subscription.subscription_id,
+                        client_id=subscription.client_id,
+                    )
                 sent_clients.add(subscription.client_id)
             except asyncio.QueueFull:
                 self._remove_client_on_loop(subscription.client_id)

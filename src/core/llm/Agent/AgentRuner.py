@@ -11,6 +11,7 @@ from daemon.events import Event, EventBus, EventHandler
 from llm import langgraph
 from llm.Agent.memory import ContextMemory, OneRunMemory
 from llm.Agent.state import AgentState
+from trace.recorder import trace_run
 
 
 RUNS_DIR = Path("runs")
@@ -133,27 +134,28 @@ class AgentRuner:
         error: str | None = None
 
         try:
-            with EventWriter(events_path, run_id=run_id) as writer:
-                writer.subscribe(bus)
-                subscribed_handlers.append(writer.handle)
-                bus.publish(_event("run.started", run_id, goal=goal))
-                try:
-                    answer = self._run_agent(goal=goal, run_id=run_id, bus=bus)
-                    bus.publish(_event("agent.answer", run_id, answer=answer))
-                    status = "finished"
-                except Exception as exc:
-                    error = str(exc)
-                    bus.publish(_event("agent.error", run_id, error=error))
-                finally:
-                    bus.publish(
-                        _event(
-                            "run.finished",
-                            run_id,
-                            status=status,
-                            answer=answer,
-                            error=error,
+            with trace_run(run_id):
+                with EventWriter(events_path, run_id=run_id) as writer:
+                    writer.subscribe(bus)
+                    subscribed_handlers.append(writer.handle)
+                    bus.publish(_event("run.started", run_id, goal=goal))
+                    try:
+                        answer = self._run_agent(goal=goal, run_id=run_id, bus=bus)
+                        bus.publish(_event("agent.answer", run_id, answer=answer))
+                        status = "finished"
+                    except Exception as exc:
+                        error = str(exc)
+                        bus.publish(_event("agent.error", run_id, error=error))
+                    finally:
+                        bus.publish(
+                            _event(
+                                "run.finished",
+                                run_id,
+                                status=status,
+                                answer=answer,
+                                error=error,
+                            )
                         )
-                    )
         finally:
             for handler in reversed(subscribed_handlers):
                 bus.unsubscribe(handler)

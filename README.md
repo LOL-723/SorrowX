@@ -27,6 +27,8 @@ Run a one-line daemon ping from cmd:
 sorrow ping
 sorrow run "hello agent"
 sorrow shutdown
+sorrow trace
+sorrow trace show run_id
 ```
 
 Run the same command from PowerShell:
@@ -35,6 +37,8 @@ Run the same command from PowerShell:
 .\sorrow.ps1 ping
 .\sorrow.ps1 run "hello agent"
 .\sorrow.ps1 shutdown
+.\sorrow.ps1 trace
+.\sorrow.ps1 trace show run_id
 ```
 
 The first ping starts the core daemon automatically. The CLI process exits after
