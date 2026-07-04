@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -68,14 +69,37 @@ class DaemonAgentRunIpcTests(unittest.IsolatedAsyncioTestCase):
 
         from daemon.main import run_daemon
 
-        with (
-            patch("llm.Agent.AgentRuner.AgentRuner", FakeAgentRuner),
-            patch("llm.Agent.AgentRuner.new_run_id", return_value="run-test"),
+        fake_agent_runner_module = types.ModuleType("llm.Agent.AgentRuner")
+        fake_agent_runner_module.AgentRuner = FakeAgentRuner
+        fake_agent_runner_module.new_run_id = lambda: "run-test"
+        with patch.dict(
+            sys.modules,
+            {"llm.Agent.AgentRuner": fake_agent_runner_module},
         ):
             daemon_task = asyncio.create_task(run_daemon(port=port))
             try:
                 await asyncio.to_thread(_wait_for_ping, port)
                 reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.write(
+                    encode_message(
+                        make_request(
+                            "event.subscribe",
+                            {
+                                "client": "test-client",
+                                "topics": ["*"],
+                            },
+                            request_id="request-subscribe",
+                        )
+                    )
+                )
+                await writer.drain()
+
+                subscription = read_result_response(
+                    decode_message(await reader.readline()),
+                    expected_id="request-subscribe",
+                )
+                self.assertEqual(subscription["topics"], ["*"])
+
                 writer.write(
                     encode_message(
                         make_request(

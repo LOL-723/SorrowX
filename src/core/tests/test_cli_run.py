@@ -24,7 +24,7 @@ class FakeStreamClient:
 
     def send_request(self, method, params=None):
         self.sent_requests.append((method, params))
-        return "request-1"
+        return f"request-{len(self.sent_requests)}"
 
     def read_message(self):
         if not FakeStreamClient.messages:
@@ -42,9 +42,17 @@ class CliRunCommandTests(unittest.TestCase):
             make_result_response(
                 "request-1",
                 {
+                    "subscription_id": "sub-1",
+                    "topics": ["*"],
+                    "run_id": None,
+                    "replayed_count": 0,
+                },
+            ),
+            make_result_response(
+                "request-2",
+                {
                     "run_id": "run-1",
                     "status": "started",
-                    "subscription_id": "sub-1",
                 },
             ),
             make_event_push(
@@ -76,8 +84,10 @@ class CliRunCommandTests(unittest.TestCase):
         ensure_daemon.assert_called_once()
         self.assertEqual(len(FakeStreamClient.instances), 1)
         stream = FakeStreamClient.instances[0]
-        self.assertEqual(stream.sent_requests[0][0], "agent.run")
-        self.assertEqual(stream.sent_requests[0][1]["goal"], "hello agent")
+        self.assertEqual(stream.sent_requests[0][0], "event.subscribe")
+        self.assertEqual(stream.sent_requests[0][1]["topics"], ["*"])
+        self.assertEqual(stream.sent_requests[1][0], "agent.run")
+        self.assertEqual(stream.sent_requests[1][1]["goal"], "hello agent")
         printer.handle.assert_any_call(
             {
                 "type": "run.started",

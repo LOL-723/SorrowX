@@ -141,23 +141,9 @@ def handle_agent_run(
     if client_name is not None and not isinstance(client_name, str):
         raise ProtocolError("client must be a string")
 
-    try:
-        topics = normalize_topics(params.get("topics"))
-    except ValueError as exc:
-        raise ProtocolError(str(exc)) from exc
-
     from llm.Agent.AgentRuner import new_run_id
 
     run_id = new_run_id()
-    subscription_id: str | None = None
-    if client_id is not None:
-        subscription = state.event_hub.subscribe(
-            client_id=client_id,
-            topics=topics,
-            run_id=run_id,
-            client_name=client_name,
-        )
-        subscription_id = subscription.subscription_id
 
     task = asyncio.create_task(
         _run_agent_in_background(
@@ -172,7 +158,6 @@ def handle_agent_run(
     return {
         "run_id": run_id,
         "status": "started",
-        "subscription_id": subscription_id,
     }
 
 

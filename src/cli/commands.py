@@ -72,12 +72,24 @@ def _run_agent_stream(
     run_id: str | None = None
 
     with CoreStreamClient(host=host, port=port, read_timeout=None) as client:
+        subscribe_request_id = client.send_request(
+            "event.subscribe",
+            {
+                "client": CLIENT_NAME,
+                "topics": ["*"],
+            },
+        )
+        _read_result_ignoring_events(
+            client,
+            expected_id=subscribe_request_id,
+            pending_events=pending_events,
+        )
+
         request_id = client.send_request(
             "agent.run",
             {
                 "client": CLIENT_NAME,
                 "goal": goal,
-                "topics": ["*"],
             },
         )
 
@@ -108,6 +120,23 @@ def _run_agent_stream(
             exit_code = _handle_run_event(event, run_id=run_id, printer=printer)
             if exit_code is not None:
                 return exit_code
+
+
+def _read_result_ignoring_events(
+    client: CoreStreamClient,
+    *,
+    expected_id: str | int,
+    pending_events: list[dict[str, object]],
+) -> dict[str, object]:
+    while True:
+        message = client.read_message()
+        if is_event_push(message):
+            pending_events.append(read_event_push(message))
+            continue
+        result = read_result_response(message, expected_id=expected_id)
+        if not isinstance(result, dict):
+            raise ValueError("RPC result must be an object")
+        return result
 
 
 def _handle_run_event(

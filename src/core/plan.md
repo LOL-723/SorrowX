@@ -25,3 +25,16 @@
   }
 ]
 ```
+
+#$#
+```json
+[
+  {
+    "step_id": "step_1",
+    "task": "回复问候语，向用户问好并询问是否需要帮助。",
+    "status": "pending",
+    "result": null,
+    "retry_count": 0
+  }
+]
+```
