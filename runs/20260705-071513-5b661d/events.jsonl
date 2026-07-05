@@ -1,6 +1,0 @@
-{"type": "run.started", "run_id": "20260705-071513-5b661d", "ts": "2026-07-05T07:15:13.268571+00:00", "goal": "test_agent_runner.py文件在哪"}
-{"type": "agent.node.started", "run_id": "20260705-071513-5b661d", "ts": "2026-07-05T07:15:13.273321+00:00", "node": "planner_node"}
-{"type": "agent.log", "run_id": "20260705-071513-5b661d", "ts": "2026-07-05T07:16:16.654181+00:00", "source": "planner_node", "message": "planner failed", "extra": {"error": "Request timed out."}}
-{"type": "agent.node.finished", "run_id": "20260705-071513-5b661d", "ts": "2026-07-05T07:16:16.654444+00:00", "node": "planner_node", "status": "failed", "phase": "failed"}
-{"type": "agent.error", "run_id": "20260705-071513-5b661d", "ts": "2026-07-05T07:16:16.655801+00:00", "error": "planner failed: Request timed out."}
-{"type": "run.finished", "run_id": "20260705-071513-5b661d", "ts": "2026-07-05T07:16:16.655935+00:00", "status": "failed", "answer": "", "error": "planner failed: Request timed out."}
