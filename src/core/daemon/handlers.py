@@ -14,6 +14,11 @@ from ipc.protocol import (
     validate_request,
 )
 
+try:
+    from session.manager import get_session_manager, is_valid_session_id
+except ImportError:  # pragma: no cover - supports imports through core.daemon
+    from core.session.manager import get_session_manager, is_valid_session_id
+
 
 @dataclass(frozen=True)
 class HandlerResult:
@@ -141,6 +146,15 @@ def handle_agent_run(
     if client_name is not None and not isinstance(client_name, str):
         raise ProtocolError("client must be a string")
 
+    session_id = params.get("session_id")
+    if not is_valid_session_id(session_id):
+        raise ProtocolError("session_id must be a non-empty string without path separators")
+
+    session_manager = get_session_manager()
+    if not session_manager.session_exists(session_id):
+        raise ProtocolError(f"session does not exist: {session_id}")
+    session_paths = session_manager.ensure_session_dirs(session_id)
+
     from llm.Agent.AgentRuner import new_run_id
 
     run_id = new_run_id()
@@ -150,6 +164,8 @@ def handle_agent_run(
             state=state,
             run_id=run_id,
             goal=goal.strip(),
+            session_id=session_id,
+            context_memory_path=session_paths.memory_path,
         )
     )
     state.active_runs[run_id] = task
@@ -157,6 +173,7 @@ def handle_agent_run(
 
     return {
         "run_id": run_id,
+        "session_id": session_id,
         "status": "started",
     }
 
@@ -166,11 +183,16 @@ async def _run_agent_in_background(
     state: DaemonState,
     run_id: str,
     goal: str,
+    session_id: str,
+    context_memory_path: Any,
 ) -> None:
     def run_sync() -> None:
         from llm.Agent.AgentRuner import AgentRuner
 
-        runner = AgentRuner()
+        runner = AgentRuner(
+            context_memory_path=context_memory_path,
+            session_id=session_id,
+        )
         try:
             runner.run(goal, run_id=run_id, event_bus=state.event_bus)
         except Exception:
@@ -180,12 +202,19 @@ async def _run_agent_in_background(
         await asyncio.to_thread(run_sync)
     except Exception as exc:
         state.event_bus.publish(
-            _event("agent.error", run_id, error=str(exc), source="daemon")
+            _event(
+                "agent.error",
+                run_id,
+                session_id=session_id,
+                error=str(exc),
+                source="daemon",
+            )
         )
         state.event_bus.publish(
             _event(
                 "run.finished",
                 run_id,
+                session_id=session_id,
                 status="failed",
                 answer="",
                 error=str(exc),
@@ -193,13 +222,22 @@ async def _run_agent_in_background(
         )
 
 
-def _event(event_type: str, run_id: str, **payload: Any) -> dict[str, Any]:
-    return {
+def _event(
+    event_type: str,
+    run_id: str,
+    *,
+    session_id: str | None = None,
+    **payload: Any,
+) -> dict[str, Any]:
+    event = {
         "type": event_type,
         "run_id": run_id,
         "ts": datetime.now(UTC).isoformat(),
         **payload,
     }
+    if session_id is not None:
+        event["session_id"] = session_id
+    return event
 
 
 _HANDLERS: dict[str, Handler] = {

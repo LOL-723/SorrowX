@@ -103,12 +103,14 @@ class AgentRuner:
         runs_dir: str | Path | None = None,
         extra_handlers: list[EventHandler] | None = None,
         context_memory_path: str | Path | None = None,
+        session_id: str | None = None,
     ) -> None:
         self.runs_dir = Path(runs_dir) if runs_dir is not None else RUNS_DIR
         self.extra_handlers = list(extra_handlers or [])
         self.context_memory_path = (
             Path(context_memory_path) if context_memory_path is not None else None
         )
+        self.session_id = session_id
 
     def run(
         self,
@@ -134,27 +136,26 @@ class AgentRuner:
         error: str | None = None
 
         try:
-            with trace_run(run_id):
+            with trace_run(run_id, session_id=self.session_id):
                 with EventWriter(events_path, run_id=run_id) as writer:
                     writer.subscribe(bus)
                     subscribed_handlers.append(writer.handle)
-                    bus.publish(_event("run.started", run_id, goal=goal))
+                    self._publish(bus, "run.started", run_id, goal=goal)
                     try:
                         answer = self._run_agent(goal=goal, run_id=run_id, bus=bus)
-                        bus.publish(_event("agent.answer", run_id, answer=answer))
+                        self._publish(bus, "agent.answer", run_id, answer=answer)
                         status = "finished"
                     except Exception as exc:
                         error = str(exc)
-                        bus.publish(_event("agent.error", run_id, error=error))
+                        self._publish(bus, "agent.error", run_id, error=error)
                     finally:
-                        bus.publish(
-                            _event(
-                                "run.finished",
-                                run_id,
-                                status=status,
-                                answer=answer,
-                                error=error,
-                            )
+                        self._publish(
+                            bus,
+                            "run.finished",
+                            run_id,
+                            status=status,
+                            answer=answer,
+                            error=error,
                         )
         finally:
             for handler in reversed(subscribed_handlers):
@@ -175,10 +176,11 @@ class AgentRuner:
             _event(
                 str(event.get("type", "agent.event")),
                 run_id,
+                session_id=self.session_id,
                 **{
                     key: value
                     for key, value in event.items()
-                    if key not in {"type", "run_id", "ts"}
+                    if key not in {"type", "run_id", "session_id", "ts"}
                 },
             )
         )
@@ -218,13 +220,12 @@ class AgentRuner:
 
             current_step = _current_step(agent_state)
             if current_step is not None:
-                bus.publish(
-                    _event(
-                        "agent.step.started",
-                        run_id,
-                        step_id=current_step.get("step_id"),
-                        task=current_step.get("task"),
-                    )
+                self._publish(
+                    bus,
+                    "agent.step.started",
+                    run_id,
+                    step_id=current_step.get("step_id"),
+                    task=current_step.get("task"),
                 )
 
             agent_state = self._run_node(
@@ -238,13 +239,12 @@ class AgentRuner:
 
             finished_step = _current_step(agent_state)
             if finished_step is not None and finished_step.get("status") == "done":
-                bus.publish(
-                    _event(
-                        "agent.step.finished",
-                        run_id,
-                        step_id=finished_step.get("step_id"),
-                        result=finished_step.get("result"),
-                    )
+                self._publish(
+                    bus,
+                    "agent.step.finished",
+                    run_id,
+                    step_id=finished_step.get("step_id"),
+                    result=finished_step.get("result"),
                 )
 
         raise RuntimeError("agent exceeded graph iteration limit")
@@ -259,37 +259,44 @@ class AgentRuner:
         node: Callable[[AgentState], AgentState],
     ) -> AgentState:
         previous_log_count = len(state.get("logs", []))
-        bus.publish(_event("agent.node.started", run_id, node=node_name))
+        self._publish(bus, "agent.node.started", run_id, node=node_name)
         update = node(state)
         merged = langgraph._merge_agent_state(state, update)
         for log_item in merged.get("logs", [])[previous_log_count:]:
-            bus.publish(
-                _event(
-                    "agent.log",
-                    run_id,
-                    source=log_item.get("node", node_name),
-                    message=log_item.get("message", ""),
-                    extra={
-                        key: value
-                        for key, value in log_item.items()
-                        if key not in {"node", "message"}
-                    },
-                )
-            )
-        bus.publish(
-            _event(
-                "agent.node.finished",
+            self._publish(
+                bus,
+                "agent.log",
                 run_id,
-                node=node_name,
-                status=merged.get("agent_status", "running"),
-                phase=merged.get("phase"),
+                source=log_item.get("node", node_name),
+                message=log_item.get("message", ""),
+                extra={
+                    key: value
+                    for key, value in log_item.items()
+                    if key not in {"node", "message"}
+                },
             )
+        self._publish(
+            bus,
+            "agent.node.finished",
+            run_id,
+            node=node_name,
+            status=merged.get("agent_status", "running"),
+            phase=merged.get("phase"),
         )
         return merged
 
     def _raise_if_failed(self, agent_state: AgentState) -> None:
         if agent_state.get("agent_status") == "failed":
             raise RuntimeError(str(agent_state.get("error") or "agent failed"))
+
+    def _publish(
+        self,
+        bus: EventBus,
+        event_type: str,
+        run_id: str,
+        **payload: Any,
+    ) -> None:
+        bus.publish(_event(event_type, run_id, session_id=self.session_id, **payload))
 
 
 def new_run_id() -> str:
@@ -298,13 +305,22 @@ def new_run_id() -> str:
     return f"{timestamp}-{suffix}"
 
 
-def _event(event_type: str, run_id: str, **payload: Any) -> Event:
-    return {
+def _event(
+    event_type: str,
+    run_id: str,
+    *,
+    session_id: str | None = None,
+    **payload: Any,
+) -> Event:
+    event: Event = {
         "type": event_type,
         "run_id": run_id,
         "ts": datetime.now(UTC).isoformat(),
         **payload,
     }
+    if session_id is not None:
+        event["session_id"] = session_id
+    return event
 
 
 def _current_step(agent_state: AgentState) -> dict[str, Any] | None:

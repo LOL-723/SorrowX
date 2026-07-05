@@ -22,10 +22,12 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                     break
                 request_trace_entry = None
                 request_run_id = None
+                request_session_id = None
                 try:
                     message = decode_message(line)
                     request_trace_entry = state.trace_recorder.prepare_client_to_core(message)
                     request_run_id = _run_id_from_request(message)
+                    request_session_id = _session_id_from_request(message)
                     handler_result = dispatch_rpc(
                         message,
                         state,
@@ -35,15 +37,20 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                     handler_result = _protocol_error_result(exc)
 
                 response_run_id = _run_id_from_response(handler_result.response)
+                response_session_id = _session_id_from_response(handler_result.response)
                 trace_run_id = response_run_id or request_run_id
+                trace_session_id = response_session_id or request_session_id
                 if trace_run_id is not None:
+                    state.trace_recorder.set_run_session(trace_run_id, trace_session_id)
                     state.trace_recorder.write_prepared(
                         trace_run_id,
                         request_trace_entry,
+                        session_id=trace_session_id,
                     )
                     state.trace_recorder.record_core_to_client_reply(
                         trace_run_id,
                         handler_result.response,
+                        session_id=trace_session_id,
                     )
                 writer.write(encode_message(handler_result.response))
                 await writer.drain()
@@ -97,12 +104,28 @@ def _run_id_from_request(message: dict[str, object]) -> str | None:
     return run_id if isinstance(run_id, str) and run_id else None
 
 
+def _session_id_from_request(message: dict[str, object]) -> str | None:
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return None
+    session_id = params.get("session_id")
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
 def _run_id_from_response(message: dict[str, object]) -> str | None:
     result = message.get("result")
     if not isinstance(result, dict):
         return None
     run_id = result.get("run_id")
     return run_id if isinstance(run_id, str) and run_id else None
+
+
+def _session_id_from_response(message: dict[str, object]) -> str | None:
+    result = message.get("result")
+    if not isinstance(result, dict):
+        return None
+    session_id = result.get("session_id")
+    return session_id if isinstance(session_id, str) and session_id else None
 
 
 if __name__ == "__main__":

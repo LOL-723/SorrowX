@@ -4,7 +4,7 @@ from pathlib import Path
 
 from trace.formatting import format_trace_entry, format_trace_summary
 from trace.reader import TraceSummary, read_trace
-from trace.recorder import TraceRecorder
+from trace.recorder import TraceRecorder, trace_run
 
 
 class TraceRecorderTests(unittest.TestCase):
@@ -87,6 +87,67 @@ class TraceRecorderTests(unittest.TestCase):
             ),
             "10:00:00.009 CORE→LLM msgs=3 tools=1",
         )
+
+    def test_recorder_routes_all_trace_entries_to_session_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            recorder = TraceRecorder(
+                records_dir=root / "records",
+                session_records_root=root / "session_trace",
+                enabled=True,
+            )
+            request = recorder.prepare_client_to_core(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "request-1",
+                    "method": "agent.run",
+                    "params": {
+                        "client": "test",
+                        "goal": "summarize README",
+                        "session_id": "session_1",
+                    },
+                }
+            )
+            recorder.write_prepared("run-1", request, session_id="session_1")
+            recorder.record_core_event(
+                {
+                    "type": "agent.loop.thought",
+                    "run_id": "run-1",
+                    "session_id": "session_1",
+                    "step_id": "step_1",
+                    "thought": "this should not be stored in trace",
+                }
+            )
+            with trace_run("run-1", session_id="session_1"):
+                call_id = recorder.record_core_to_llm(
+                    "run-1",
+                    model="test-model",
+                    message_count=3,
+                    tool_count=1,
+                )
+                recorder.record_llm_to_core(
+                    "run-1",
+                    call_id=call_id,
+                    usage={
+                        "prompt_tokens": 10,
+                        "completion_tokens": 47,
+                        "total_tokens": 57,
+                    },
+                )
+            recorder.close()
+
+            session_dir = root / "session_trace" / "session_1"
+            entries = read_trace("run-1", records_dir=session_dir)
+            session_trace_path_exists = (session_dir / "run-1.jsonl").exists()
+            global_trace_path_exists = (root / "records" / "run-1.jsonl").exists()
+
+        self.assertEqual(
+            [entry["direction"] for entry in entries],
+            ["CLIENT_TO_CORE", "CORE", "CORE_TO_LLM", "LLM_TO_CORE"],
+        )
+        self.assertTrue(session_trace_path_exists)
+        self.assertFalse(global_trace_path_exists)
+        self.assertEqual({entry.get("session_id") for entry in entries}, {"session_1"})
 
 
 if __name__ == "__main__":

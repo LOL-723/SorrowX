@@ -3,6 +3,7 @@ from typing import Callable
 
 from cli.event_rendering import CliEventPrinter
 from cli.formatting import format_ping_reply
+from core.session.manager import get_session_manager
 from core.trace.formatting import format_trace_entry, format_trace_summary
 from core.trace.reader import list_traces, read_trace
 from core.ipc.client import CoreClient, CoreStreamClient, get_default_host, get_default_port
@@ -54,8 +55,15 @@ def run_command(argv: list[str]) -> int:
     port = get_default_port()
     printer = CliEventPrinter()
     try:
+        session_id = get_session_manager().ensure_current_session()
         ensure_daemon_running(host=host, port=port)
-        return _run_agent_stream(host=host, port=port, goal=goal, printer=printer)
+        return _run_agent_stream(
+            host=host,
+            port=port,
+            goal=goal,
+            session_id=session_id,
+            printer=printer,
+        )
     except KeyboardInterrupt:
         return 130
     except Exception as exc:
@@ -70,13 +78,15 @@ def trace_command(argv: list[str]) -> int:
     show_parser.add_argument("run_id")
     args = parser.parse_args(argv)
 
+    session_id = get_session_manager().ensure_current_session()
     if args.action == "show":
-        return _trace_show_command(args.run_id)
-    return _trace_list_command()
+        return _trace_show_command(args.run_id, session_id=session_id)
+    return _trace_list_command(session_id=session_id)
 
 
-def _trace_list_command() -> int:
-    summaries = list_traces()
+def _trace_list_command(*, session_id: str) -> int:
+    records_dir = get_session_manager().trace_dir(session_id)
+    summaries = list_traces(records_dir=records_dir)
     if not summaries:
         print("No trace records found.", flush=True)
         return 0
@@ -85,9 +95,10 @@ def _trace_list_command() -> int:
     return 0
 
 
-def _trace_show_command(run_id: str) -> int:
+def _trace_show_command(run_id: str, *, session_id: str) -> int:
+    records_dir = get_session_manager().trace_dir(session_id)
     try:
-        entries = read_trace(run_id)
+        entries = read_trace(run_id, records_dir=records_dir)
     except FileNotFoundError as exc:
         print(str(exc), flush=True)
         return 1
@@ -99,11 +110,74 @@ def _trace_show_command(run_id: str) -> int:
     return 0
 
 
+def session_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="sorrow session")
+    subparsers = parser.add_subparsers(dest="action")
+    subparsers.add_parser("new")
+    switch_parser = subparsers.add_parser("switch")
+    switch_parser.add_argument("session_id")
+    del_parser = subparsers.add_parser("del")
+    del_parser.add_argument("session_id")
+    subparsers.add_parser("list")
+    subparsers.add_parser("current")
+    args = parser.parse_args(argv)
+
+    manager = get_session_manager()
+    if args.action == "new":
+        session_id = manager.new_session()
+        print(f"Current session: {session_id}", flush=True)
+        return 0
+    if args.action == "switch":
+        try:
+            session_id = manager.switch_session(args.session_id)
+        except ValueError as exc:
+            print(str(exc), flush=True)
+            return 1
+        print(f"Current session: {session_id}", flush=True)
+        return 0
+    if args.action == "del":
+        try:
+            session_id = manager.delete_session(args.session_id)
+        except ValueError as exc:
+            print(str(exc), flush=True)
+            return 1
+        except OSError as exc:
+            print(
+                f"cannot delete session: {args.session_id}; "
+                f"session files may still be in use ({exc})",
+                flush=True,
+            )
+            return 1
+        print(f"Deleted session: {session_id}", flush=True)
+        return 0
+    if args.action == "list":
+        sessions = manager.list_sessions()
+        if not sessions:
+            print("No sessions found.", flush=True)
+            return 0
+        current = manager.current_session()
+        for session_id in sessions:
+            marker = "*" if session_id == current else " "
+            print(f"{marker} {session_id}", flush=True)
+        return 0
+    if args.action == "current":
+        session_id = manager.current_session()
+        if session_id is None:
+            print("No current session.", flush=True)
+            return 0
+        print(session_id, flush=True)
+        return 0
+
+    parser.print_help()
+    return 1
+
+
 def _run_agent_stream(
     *,
     host: str,
     port: int,
     goal: str,
+    session_id: str,
     printer: CliEventPrinter,
 ) -> int:
     pending_events: list[dict[str, object]] = []
@@ -128,6 +202,7 @@ def _run_agent_stream(
             {
                 "client": CLIENT_NAME,
                 "goal": goal,
+                "session_id": session_id,
             },
         )
 
@@ -201,6 +276,7 @@ def _format_seconds(uptime_ms: object) -> str:
 COMMANDS: dict[str, CommandHandler] = {
     "ping": ping_command,
     "run": run_command,
+    "session": session_command,
     "shutdown": shutdown_command,
     "trace": trace_command,
 }

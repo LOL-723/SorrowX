@@ -83,6 +83,7 @@ class AgentRunerTests(unittest.TestCase):
                 runs_dir=Path(temp_dir) / "runs",
                 context_memory_path=Path(temp_dir) / "context_memory.jsonl",
                 extra_handlers=[seen_events.append],
+                session_id="session_1",
             )
             with (
                 patch("llm.langgraph.planner_node", side_effect=fake_planner),
@@ -108,6 +109,7 @@ class AgentRunerTests(unittest.TestCase):
         self.assertIn("agent.answer", event_types)
         self.assertEqual(event_types[-1], "run.finished")
         self.assertEqual([event["type"] for event in seen_events], event_types)
+        self.assertEqual({event.get("session_id") for event in file_events}, {"session_1"})
 
     def test_agent_loop_emits_thought_callback_without_legacy_printer(self) -> None:
         emitted_events = []

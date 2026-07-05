@@ -1,16 +1,31 @@
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 from cli import commands
 from core.trace.reader import TraceSummary
 
 
+class FakeSessionManager:
+    def ensure_current_session(self) -> str:
+        return "session_1"
+
+    def trace_dir(self, session_id: str) -> Path:
+        return Path("session_trace") / session_id
+
+
 class TraceCliTests(unittest.TestCase):
     def test_trace_command_lists_runs(self) -> None:
         stream = StringIO()
+        fake_session_manager = FakeSessionManager()
         with (
+            patch.object(
+                commands,
+                "get_session_manager",
+                return_value=fake_session_manager,
+            ),
             patch.object(
                 commands,
                 "list_traces",
@@ -32,7 +47,13 @@ class TraceCliTests(unittest.TestCase):
 
     def test_trace_show_command_prints_entries(self) -> None:
         stream = StringIO()
+        fake_session_manager = FakeSessionManager()
         with (
+            patch.object(
+                commands,
+                "get_session_manager",
+                return_value=fake_session_manager,
+            ),
             patch.object(
                 commands,
                 "read_trace",

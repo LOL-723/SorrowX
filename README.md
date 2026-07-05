@@ -25,6 +25,11 @@ Run a one-line daemon ping from cmd:
 
 ```cmd
 sorrow ping
+sorrow session new
+sorrow session switch session_1
+sorrow session list
+sorrow session current
+sorrow session del session_1
 sorrow run "hello agent"
 sorrow shutdown
 sorrow trace
@@ -35,6 +40,11 @@ Run the same command from PowerShell:
 
 ```powershell
 .\sorrow.ps1 ping
+.\sorrow.ps1 session new
+.\sorrow.ps1 session switch session_1
+.\sorrow.ps1 session list
+.\sorrow.ps1 session current
+.\sorrow.ps1 session del session_1
 .\sorrow.ps1 run "hello agent"
 .\sorrow.ps1 shutdown
 .\sorrow.ps1 trace
@@ -47,3 +57,15 @@ the command finishes; the daemon remains running until it is stopped manually.
 `sorrow run` also starts the daemon automatically when needed. The CLI sends the
 goal to the daemon with JSON-RPC over NDJSON, keeps the TCP connection open, and
 prints Agent events streamed back by the daemon until the run finishes.
+
+Session commands manage per-session memory and trace storage:
+
+- `sorrow session new` creates a new session id and sets it as current.
+- `sorrow session switch session_id` changes the current session.
+- `sorrow session list` lists all known session ids and marks the current one.
+- `sorrow session current` prints the current session id.
+- `sorrow session del session_id` deletes that session's memory and trace data. The current session cannot be deleted; switch to another session first.
+
+`sorrow run` and `sorrow trace` require a session. If no current session exists,
+the CLI creates one automatically. `sorrow ping` and `sorrow shutdown` do not use
+sessions.

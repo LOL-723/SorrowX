@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 storage/
 src/core/storage/daemon/
+src/core/trace/session_trace/
 src/core/plan.md
 
 .pytest_cache/
