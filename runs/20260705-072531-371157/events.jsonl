@@ -1,0 +1,18 @@
+{"type": "run.started", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:31.315285+00:00", "goal": "heelooo"}
+{"type": "agent.node.started", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:31.316848+00:00", "node": "planner_node"}
+{"type": "agent.log", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.504511+00:00", "source": "planner_node", "message": "initial plan created", "extra": {"planner_mode": "initial", "plan_revision": 1, "step_count": 1}}
+{"type": "agent.node.finished", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.504816+00:00", "node": "planner_node", "status": "running", "phase": "planning"}
+{"type": "agent.node.started", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.506308+00:00", "node": "select_next_step_node"}
+{"type": "agent.log", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.506590+00:00", "source": "select_next_step_node", "message": "next pending step selected", "extra": {"current_step_index": 0, "current_step_id": "step_1"}}
+{"type": "agent.node.finished", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.507267+00:00", "node": "select_next_step_node", "status": "running", "phase": "selecting_step"}
+{"type": "agent.step.started", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.507635+00:00", "step_id": "step_1", "task": "回复问候，向用户打招呼。"}
+{"type": "agent.node.started", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:34.507915+00:00", "node": "agent_loop_node"}
+{"type": "agent.loop.thought", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.093332+00:00", "step_id": "step_1", "turn": 1, "decision": "finish", "signal": "none", "tool": "none", "thought": "用户发来问候'heelooo'，任务要求回复问候。无需调用工具，直接生成问候语即可完成本步骤。"}
+{"type": "agent.log", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.093561+00:00", "source": "agent_loop_node", "message": "step agent loop completed", "extra": {"current_step_id": "step_1", "agent_loop_turn_count": 1}}
+{"type": "agent.node.finished", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.093753+00:00", "node": "agent_loop_node", "status": "running", "phase": "reacting"}
+{"type": "agent.step.finished", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.093923+00:00", "step_id": "step_1", "result": "你好！很高兴见到你，有什么可以帮你的吗？😊"}
+{"type": "agent.node.started", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.094065+00:00", "node": "select_next_step_node"}
+{"type": "agent.log", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.094194+00:00", "source": "select_next_step_node", "message": "no pending step found", "extra": {}}
+{"type": "agent.node.finished", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:37.094474+00:00", "node": "select_next_step_node", "status": "running", "phase": "selecting_step"}
+{"type": "agent.answer", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:38.564841+00:00", "answer": "你好！很高兴见到你，有什么可以帮你的吗？😊"}
+{"type": "run.finished", "run_id": "20260705-072531-371157", "ts": "2026-07-05T07:25:38.565262+00:00", "status": "finished", "answer": "你好！很高兴见到你，有什么可以帮你的吗？😊", "error": null}

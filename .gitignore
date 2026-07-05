@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 storage/
 src/core/storage/daemon/
+src/core/plan.md
 
 .pytest_cache/
 .mypy_cache/

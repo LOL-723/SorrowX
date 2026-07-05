@@ -9,9 +9,9 @@ import requests
 from llm.Agent.rag_tools import retrieve_uploaded_document_tool
 from llm.Agent.tools import (
     list_dir_tool,
-    patch_file_tool,
     read_file_tool,
     run_tests_tool,
+    write_file_tool,
 )
 
 
@@ -534,12 +534,13 @@ TOOL_ARGUMENTS["retrieve_uploaded_document"] = {
 TOOL_REGISTRY["retrieve_uploaded_document"] = retrieve_uploaded_document_tool
 
 TOOL_DESCRIPTIONS["list_dir"] = (
-    "检查当前工作目录或指定子目录，返回最多 20 个节点的结构化目录树。"
-    "优先展示 src 内容；过滤隐藏路径和缓存/系统目录；不读取任何文件内容。"
+    "检查当前工作目录或指定子目录。keyword 为空时返回最多 40 个节点的结构化目录树，"
+    "优先完整展示目标目录直接子项；keyword 非空时按文件/目录名搜索匹配路径。"
+    "过滤隐藏路径和缓存/系统目录；不读取任何文件内容。"
 )
 TOOL_ARGUMENTS["list_dir"] = {
     "path": "可选工作目录内相对路径。省略时检查当前工作目录。",
-    "max_entries": "可选最大节点数，最高 20。",
+    "keyword": "可选文件名或目录名关键字。非空时在 path 范围内按名称搜索匹配路径。",
 }
 TOOL_REGISTRY["list_dir"] = list_dir_tool
 
@@ -556,19 +557,25 @@ TOOL_ARGUMENTS["read_file"] = {
 }
 TOOL_REGISTRY["read_file"] = read_file_tool
 
-TOOL_DESCRIPTIONS["patch_file"] = (
-    "修改工作目录内文件的预留工具。当前仅已注册，具体实现尚未完成。"
+TOOL_DESCRIPTIONS["write_file"] = (
+    "创建或修改工作目录内文本文件。仅支持 .md、.txt、.cpp、.py；写入最大 1MB。"
+    "新文件必须传 new_create_confirm=true。修改已有文件必须传当前文件中唯一匹配的 "
+    "old_content，工具会在写入瞬间校验 old_content，不匹配时拒绝写入并要求重新读取。"
 )
-TOOL_ARGUMENTS["patch_file"] = {
-    "path": "工作目录内相对文件路径。当前参数已预留，工具尚未实现。",
-    "patch": "待应用补丁。当前参数已预留，工具尚未实现。",
+TOOL_ARGUMENTS["write_file"] = {
+    "path": "工作目录内具体相对文件路径，必填。不能是目录，不能越界到工作目录外。",
+    "content": "待写入的新内容，必填。UTF-8 编码后最大 1MB。",
+    "old_content": "修改已有文件时必填，必须与当前文件中的一段内容唯一精确匹配。新建文件时省略。",
+    "new_create_confirm": "创建不存在的新文件时必须为 true；修改已有文件时可省略或为 false。",
 }
-TOOL_REGISTRY["patch_file"] = patch_file_tool
+TOOL_REGISTRY["write_file"] = write_file_tool
 
 TOOL_DESCRIPTIONS["run_tests"] = (
-    "运行项目测试命令的预留工具。当前仅已注册，具体实现尚未完成。"
+    "运行受限的项目验证命令。支持 python ... 执行工作目录内脚本，或 pytest ... 运行测试；"
+    "不支持 shell 管道、重定向、&&、|| 等控制操作符。"
 )
 TOOL_ARGUMENTS["run_tests"] = {
-    "command": "可选测试命令。当前参数已预留，工具尚未实现。",
+    "command": "可选命令。省略时运行 pytest；支持 python <workspace-relative-script.py> 或 pytest <args>。",
+    "timeout_seconds": "可选超时时间，整数秒，范围 1 到 120；省略时为 30。",
 }
 TOOL_REGISTRY["run_tests"] = run_tests_tool
