@@ -7,6 +7,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import requests
 
 from llm.Agent.rag_tools import retrieve_uploaded_document_tool
+from llm.Agent.tools import (
+    list_dir_tool,
+    patch_file_tool,
+    read_file_tool,
+    run_tests_tool,
+)
 
 
 DEFAULT_TIMEZONE = "Asia/Shanghai"
@@ -526,3 +532,43 @@ TOOL_ARGUMENTS["retrieve_uploaded_document"] = {
     "document_id": "Optional uploaded document id. The runtime should inject this from file context when available.",
 }
 TOOL_REGISTRY["retrieve_uploaded_document"] = retrieve_uploaded_document_tool
+
+TOOL_DESCRIPTIONS["list_dir"] = (
+    "检查当前工作目录或指定子目录，返回最多 20 个节点的结构化目录树。"
+    "优先展示 src 内容；过滤隐藏路径和缓存/系统目录；不读取任何文件内容。"
+)
+TOOL_ARGUMENTS["list_dir"] = {
+    "path": "可选工作目录内相对路径。省略时检查当前工作目录。",
+    "max_entries": "可选最大节点数，最高 20。",
+}
+TOOL_REGISTRY["list_dir"] = list_dir_tool
+
+TOOL_DESCRIPTIONS["read_file"] = (
+    "读取工作目录内普通文本文件的具体内容。支持按 path 读取、按 start_line/end_line "
+    "截取 1-based 行号范围、按 keyword 定位代码上下文。keyword 命中一次时返回较大上下文；"
+    "命中多次时只返回候选行号和预览，需要下一轮用 start_line/end_line 精读。"
+)
+TOOL_ARGUMENTS["read_file"] = {
+    "path": "工作目录内相对文件路径，必填。",
+    "keyword": "可选关键字。为空时直接按行号范围读取；非空时在范围内定位关键字。",
+    "start_line": "可选起始行号，1-based。和 keyword 同时使用时先限制行号范围。",
+    "end_line": "可选终止行号，1-based。和 keyword 同时使用时先限制行号范围。",
+}
+TOOL_REGISTRY["read_file"] = read_file_tool
+
+TOOL_DESCRIPTIONS["patch_file"] = (
+    "修改工作目录内文件的预留工具。当前仅已注册，具体实现尚未完成。"
+)
+TOOL_ARGUMENTS["patch_file"] = {
+    "path": "工作目录内相对文件路径。当前参数已预留，工具尚未实现。",
+    "patch": "待应用补丁。当前参数已预留，工具尚未实现。",
+}
+TOOL_REGISTRY["patch_file"] = patch_file_tool
+
+TOOL_DESCRIPTIONS["run_tests"] = (
+    "运行项目测试命令的预留工具。当前仅已注册，具体实现尚未完成。"
+)
+TOOL_ARGUMENTS["run_tests"] = {
+    "command": "可选测试命令。当前参数已预留，工具尚未实现。",
+}
+TOOL_REGISTRY["run_tests"] = run_tests_tool
