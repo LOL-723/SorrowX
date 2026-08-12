@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 from daemon.handlers import HandlerResult, dispatch_rpc
 from daemon.state import DaemonState
 from ipc.client import DEFAULT_HOST, DEFAULT_PORT
@@ -66,10 +67,43 @@ async def run_daemon(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None
                 pass
 
     server = await asyncio.start_server(handle_client, host=host, port=port)
+    startup_memory_task = asyncio.create_task(
+        asyncio.to_thread(_refresh_current_session_memory)
+    )
+    startup_memory_task.add_done_callback(_log_startup_memory_failure)
     async with server:
         await shutdown_event.wait()
         server.close()
         await server.wait_closed()
+
+
+def _refresh_current_session_memory() -> None:
+    try:
+        from session.manager import get_session_manager
+        from llm.Agent.memory import ContextMemory
+        from llm.Agent.memory_summary import refresh_context_memory_summary
+
+        manager = get_session_manager()
+        session_id = manager.current_session()
+        if session_id is None:
+            return
+        paths = manager.ensure_session_dirs(session_id)
+        refresh_context_memory_summary(ContextMemory(paths.memory_path))
+    except Exception:
+        logging.exception("daemon startup memory summary refresh failed")
+
+
+def _log_startup_memory_failure(task: asyncio.Task[None]) -> None:
+    if task.cancelled():
+        return
+    try:
+        task.result()
+    except Exception as exc:
+        logging.error(
+            "daemon startup memory summary task failed: %s",
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

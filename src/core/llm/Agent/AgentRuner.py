@@ -184,7 +184,7 @@ class AgentRuner:
                 },
             )
         )
-        agent_state["context_memory"] = ContextMemory(self.context_memory_path).load()
+        agent_state["context_memory"] = ContextMemory(self.context_memory_path).load_summary()
 
         for _ in range(langgraph.MAX_AGENT_NODE_ITERATIONS):
             should_plan = (

@@ -30,6 +30,8 @@ sorrow session switch session_1
 sorrow session list
 sorrow session current
 sorrow session del session_1
+sorrow UpdateMemory
+sorrow CheckMemory
 sorrow run "hello agent"
 sorrow shutdown
 sorrow trace
@@ -45,6 +47,8 @@ Run the same command from PowerShell:
 .\sorrow.ps1 session list
 .\sorrow.ps1 session current
 .\sorrow.ps1 session del session_1
+.\sorrow.ps1 UpdateMemory
+.\sorrow.ps1 CheckMemory
 .\sorrow.ps1 run "hello agent"
 .\sorrow.ps1 shutdown
 .\sorrow.ps1 trace
@@ -65,6 +69,8 @@ Session commands manage per-session memory and trace storage:
 - `sorrow session list` lists all known session ids and marks the current one.
 - `sorrow session current` prints the current session id.
 - `sorrow session del session_id` deletes that session's memory and trace data. The current session cannot be deleted; switch to another session first.
+- `sorrow UpdateMemory` rebuilds the current session's concise memory summary from its latest ten question/answer records.
+- `sorrow CheckMemory` displays the current session's memory summary without calling the model.
 
 `sorrow run` and `sorrow trace` require a session. If no current session exists,
 the CLI creates one automatically. `sorrow ping` and `sorrow shutdown` do not use

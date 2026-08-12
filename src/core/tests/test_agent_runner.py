@@ -7,12 +7,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from llm.Agent.AgentRuner import AgentRuner, StdoutPrinter
+from llm.Agent.memory import ContextMemory
 from llm.Agent.nodes import agent_loop
 
 
 class AgentRunerTests(unittest.TestCase):
     def test_runner_writes_events_jsonl_for_successful_agent_run(self) -> None:
+        seen_context_memory: list[str] = []
+
         def fake_planner(state):
+            seen_context_memory.append(state.get("context_memory", ""))
             return {
                 "plan": [
                     {
@@ -79,9 +83,13 @@ class AgentRunerTests(unittest.TestCase):
 
         seen_events = []
         with tempfile.TemporaryDirectory() as temp_dir:
+            context_memory_path = Path(temp_dir) / "context_memory.jsonl"
+            context_memory = ContextMemory(context_memory_path)
+            context_memory.remember(question="old question", final_answer="old answer")
+            context_memory.refresh_summary(summarize=lambda _: "old memory summary")
             runner = AgentRuner(
                 runs_dir=Path(temp_dir) / "runs",
-                context_memory_path=Path(temp_dir) / "context_memory.jsonl",
+                context_memory_path=context_memory_path,
                 extra_handlers=[seen_events.append],
                 session_id="session_1",
             )
@@ -96,6 +104,7 @@ class AgentRunerTests(unittest.TestCase):
             self.assertEqual(result.status, "finished")
             self.assertEqual(result.answer, "final answer")
             self.assertTrue(result.events_path.exists())
+            self.assertEqual(seen_context_memory, ["old memory summary"])
             file_events = [
                 json.loads(line)
                 for line in result.events_path.read_text(encoding="utf-8").splitlines()
@@ -163,17 +172,11 @@ class AgentRunerTests(unittest.TestCase):
         self.assertEqual(update["plan"][0]["status"], "done")
         self.assertEqual(update["plan"][0]["result"], "final")
 
-    def test_agent_loop_passes_recent_context_memory_to_decision_payload(self) -> None:
+    def test_agent_loop_passes_context_memory_summary_to_decision_payload(self) -> None:
         seen_payloads = []
         state = {
             "question": "我刚才问你什么问题了?",
-            "context_memory": [
-                {
-                    "question": f"old-{index}",
-                    "final_answer": f"answer-{index}",
-                }
-                for index in range(10)
-            ],
+            "context_memory": "近期问题包括 old-9，对应答案是 answer-9。",
             "plan": [
                 {
                     "step_id": "step_1",
@@ -206,9 +209,10 @@ class AgentRunerTests(unittest.TestCase):
         self.assertEqual(update["plan"][0]["status"], "done")
         self.assertEqual(update["plan"][0]["result"], "old-9")
         self.assertEqual(
-            [record["question"] for record in seen_payloads[0]["context_memory"]],
-            [f"old-{index}" for index in range(2, 10)],
+            seen_payloads[0]["context_memory"],
+            "近期问题包括 old-9，对应答案是 answer-9。",
         )
+        self.assertNotIn("previous_thought", seen_payloads[0])
 
     def test_stdout_printer_renders_thought_event_like_legacy_trace(self) -> None:
         printer = StdoutPrinter()

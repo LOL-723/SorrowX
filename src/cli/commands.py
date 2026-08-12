@@ -9,6 +9,8 @@ from core.trace.reader import list_traces, read_trace
 from core.ipc.client import CoreClient, CoreStreamClient, get_default_host, get_default_port
 from core.ipc.daemon_process import ensure_daemon_running
 from core.ipc.protocol import is_event_push, read_event_push, read_result_response
+from llm.Agent.memory import ContextMemory
+from llm.Agent.memory_summary import refresh_context_memory_summary
 
 
 CommandHandler = Callable[[list[str]], int]
@@ -82,6 +84,49 @@ def trace_command(argv: list[str]) -> int:
     if args.action == "show":
         return _trace_show_command(args.run_id, session_id=session_id)
     return _trace_list_command(session_id=session_id)
+
+
+def update_memory_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="sorrow UpdateMemory")
+    parser.parse_args(argv)
+
+    manager = get_session_manager()
+    session_id = manager.ensure_current_session()
+    memory = ContextMemory(manager.memory_path(session_id))
+    try:
+        update = refresh_context_memory_summary(memory, force=True)
+    except Exception as exc:
+        print(f"Memory summary update failed: {exc}", flush=True)
+        return 1
+
+    if update.status == "empty":
+        print(f"No context memory to summarize for {session_id}.", flush=True)
+        return 0
+
+    print(
+        f"Memory summary updated: {update.path} "
+        f"({update.record_count} source records)",
+        flush=True,
+    )
+    print(update.summary, flush=True)
+    return 0
+
+
+def check_memory_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="sorrow CheckMemory")
+    parser.parse_args(argv)
+
+    manager = get_session_manager()
+    session_id = manager.ensure_current_session()
+    memory = ContextMemory(manager.memory_path(session_id))
+    summary = memory.load_summary()
+    if not summary:
+        print(f"No memory summary found for {session_id}.", flush=True)
+        return 0
+
+    print(f"Memory summary: {memory.summary_path}", flush=True)
+    print(summary, flush=True)
+    return 0
 
 
 def _trace_list_command(*, session_id: str) -> int:
@@ -274,6 +319,8 @@ def _format_seconds(uptime_ms: object) -> str:
 
 
 COMMANDS: dict[str, CommandHandler] = {
+    "CheckMemory": check_memory_command,
+    "UpdateMemory": update_memory_command,
     "ping": ping_command,
     "run": run_command,
     "session": session_command,

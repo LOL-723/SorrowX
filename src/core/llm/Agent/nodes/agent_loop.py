@@ -275,12 +275,11 @@ def _decide_next_loop(
 ) -> dict[str, Any]:
     payload = {
         "question": question,
-        "context_memory": _recent_context_memory(state),
+        "context_memory": _context_memory_summary(state),
         "current_step_id": step_id,
         "task": task,
         "completed_steps": memory.step_results,
         "react_results": memory.react_results,
-        "previous_thought": memory.previous_thought(),
         "no_finding_count": memory.no_finding_counts.get(step_id, 0),
         "current_correction_instruction": state.get("current_correction_instruction"),
         "overthink_count": memory.overthink_counts.get(step_id, 0),
@@ -339,25 +338,9 @@ def _decide_next_loop(
     }
 
 
-def _recent_context_memory(state: AgentState, *, limit: int = 8) -> list[dict[str, str]]:
-    records = state.get("context_memory", [])
-    if not isinstance(records, list):
-        return []
-
-    normalized: list[dict[str, str]] = []
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        question = record.get("question")
-        final_answer = record.get("final_answer")
-        if isinstance(question, str) and isinstance(final_answer, str):
-            normalized.append(
-                {
-                    "question": question,
-                    "final_answer": final_answer,
-                }
-            )
-    return normalized[-limit:]
+def _context_memory_summary(state: AgentState) -> str:
+    summary = state.get("context_memory", "")
+    return summary if isinstance(summary, str) else ""
 
 
 def _print_agent_thought_trace(

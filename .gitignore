@@ -7,6 +7,7 @@ storage/
 src/core/storage/daemon/
 src/core/trace/session_trace/
 src/core/plan.md
+CODEX.md
 
 .pytest_cache/
 .mypy_cache/

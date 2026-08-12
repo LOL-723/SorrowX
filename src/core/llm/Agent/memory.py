@@ -1,6 +1,8 @@
 import json
+import hashlib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from llm.Agent.state import AgentLoopSignal, AgentState
 
@@ -11,6 +13,17 @@ DEFAULT_CONTEXT_MEMORY_PATH = (
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PLAN_VISUALIZATION_PATH = WORKSPACE_ROOT / "plan.md"
 VISUALIZATION_SEPARATOR = "#$#"
+CONTEXT_MEMORY_SUMMARY_FILENAME = "context_memory_summary.md"
+CONTEXT_MEMORY_SUMMARY_MAX_CHARS = 300
+CONTEXT_MEMORY_SUMMARY_SOURCE_LIMIT = 10
+
+
+@dataclass(frozen=True)
+class ContextMemorySummaryUpdate:
+    status: str
+    path: Path
+    summary: str
+    record_count: int
 
 
 def append_plan_visualization(
@@ -64,13 +77,6 @@ class OneRunMemory:
             "subagent_results": [],
             "agent_depth": 0,
         }
-
-    def previous_thought(self) -> str | None:
-        for react_result in reversed(self.react_results):
-            thought = react_result.get("thought")
-            if isinstance(thought, str) and thought.strip():
-                return thought
-        return None
 
     def last_tool_observation(self) -> str | None:
         for react_result in reversed(self.react_results):
@@ -187,6 +193,7 @@ class OneRunMemory:
         return {
             "question": question,
             "document_id": parent_state.get("document_id"),
+            "context_memory": parent_state.get("context_memory", ""),
             "plan": [subagent_step],
             "current_step_index": 0,
             "current_step_id": step_id,
@@ -217,6 +224,61 @@ class ContextMemory:
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
         return self.load()
 
+    @property
+    def summary_path(self) -> Path:
+        return self.path.with_name(CONTEXT_MEMORY_SUMMARY_FILENAME)
+
+    def load_summary(self) -> str:
+        summary, _ = self._read_summary_file()
+        return summary
+
+    def refresh_summary(
+        self,
+        *,
+        summarize: Callable[[list[dict[str, str]]], str],
+        force: bool = False,
+    ) -> ContextMemorySummaryUpdate:
+        records = self.load()[-CONTEXT_MEMORY_SUMMARY_SOURCE_LIMIT:]
+        if not records:
+            return ContextMemorySummaryUpdate(
+                status="empty",
+                path=self.summary_path,
+                summary="",
+                record_count=0,
+            )
+
+        source_digest = _memory_records_digest(records)
+        existing_summary, existing_metadata = self._read_summary_file()
+        if not force and existing_metadata.get("source_digest") == source_digest:
+            return ContextMemorySummaryUpdate(
+                status="unchanged",
+                path=self.summary_path,
+                summary=existing_summary,
+                record_count=len(records),
+            )
+
+        generated_summary = _normalize_memory_summary(summarize(records))
+        if not generated_summary:
+            raise ValueError("memory summary cannot be empty")
+
+        self.summary_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "source_digest": source_digest,
+            "record_count": len(records),
+        }
+        self.summary_path.write_text(
+            "<!-- sorrow-memory-summary: "
+            f"{json.dumps(metadata, ensure_ascii=False, sort_keys=True)} -->\n"
+            f"{generated_summary}\n",
+            encoding="utf-8",
+        )
+        return ContextMemorySummaryUpdate(
+            status="updated",
+            path=self.summary_path,
+            summary=generated_summary,
+            record_count=len(records),
+        )
+
     def load(self) -> list[dict[str, str]]:
         if not self.path.exists():
             return []
@@ -243,3 +305,32 @@ class ContextMemory:
                         }
                     )
         return records
+
+    def _read_summary_file(self) -> tuple[str, dict[str, Any]]:
+        if not self.summary_path.exists():
+            return "", {}
+
+        raw_content = self.summary_path.read_text(encoding="utf-8")
+        lines = raw_content.splitlines()
+        metadata: dict[str, Any] = {}
+        if lines and lines[0].startswith("<!-- sorrow-memory-summary: ") and lines[0].endswith(" -->"):
+            raw_metadata = lines[0][len("<!-- sorrow-memory-summary: ") : -len(" -->")]
+            try:
+                parsed_metadata = json.loads(raw_metadata)
+            except json.JSONDecodeError:
+                parsed_metadata = {}
+            if isinstance(parsed_metadata, dict):
+                metadata = parsed_metadata
+            lines = lines[1:]
+        return _normalize_memory_summary("\n".join(lines)), metadata
+
+
+def _memory_records_digest(records: list[dict[str, str]]) -> str:
+    content = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _normalize_memory_summary(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("memory summary must be a string")
+    return value.strip()[:CONTEXT_MEMORY_SUMMARY_MAX_CHARS]

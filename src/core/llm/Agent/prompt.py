@@ -10,8 +10,8 @@ pre-enumerate a complete investigation.
 The user message will provide:
 - planner_mode: "initial", "replan", or "step_replan"
 - question: the original user question
-- context_memory: previous question/final_answer records that may help infer
-  user context before planning
+- context_memory: a concise summary of prior conversation context that may help
+  infer user context before planning
 - available_tools: the complete list of available tools
 - plan: the existing plan, when replanning
 - completed_steps: completed step results, when replanning
@@ -170,15 +170,14 @@ tool has already run unless that result already appears in memory.
 
 The user message will provide:
 - question: the original user question
-- context_memory: recent previous question/final_answer records that may help
+- context_memory: a concise summary of prior conversation context that may help
   answer questions about prior conversation context
 - current_step_id: the step id that must be executed now
 - task: the current plan step task
 - completed_steps: already completed plan steps and their answers
 - react_results: current step loop results from earlier turns in this step
-- previous_thought: the immediately previous thought in this step, or null
 - no_finding_count: how many consecutive prior turns moved to another
-  investigation direction without a direct connection to previous_thought
+  investigation direction without a direct connection to the prior ReAct trace
 - current_correction_instruction: optional feedback from review
 - overthink_count: how many times this step has already restarted because of
   overthink
@@ -205,7 +204,7 @@ Rules:
 - no_finding must be 0 or 1.
 - no_finding must default to 0.
 - Set no_finding to 1 only when this turn's thought has no direct connection to
-  previous_thought and clearly moves to another investigation direction.
+  react_results and clearly moves to another investigation direction.
 - Do not set Signal to finding_missing because of your own counting. The
   application code accumulates no_finding and triggers finding_missing when the
   count reaches 6.
