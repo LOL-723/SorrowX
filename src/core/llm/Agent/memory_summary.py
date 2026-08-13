@@ -7,9 +7,11 @@ from llm.Agent.nodes.universal import _chat_completion
 MEMORY_SUMMARY_PROMPT = """
 You summarize a session's prior user questions and final answers for an Agent.
 
-Create a concise Chinese memory summary that may be used as prior-conversation
-context. Include only information useful for answering later requests. Do not
-invent facts or treat answers as verified external evidence.
+Create a concise Chinese rolling memory summary that may be used as
+prior-conversation context. Merge the previous summary with the new records.
+Keep stable user preferences, unfinished work, latest conclusions, and explicit
+corrections; discard superseded or low-value detail. Do not invent facts or
+treat answers as verified external evidence.
 
 The input records are ordered from oldest to newest. When the same or similar
 question appears more than once, preserve its sequence. If the answers differ,
@@ -25,17 +27,23 @@ def refresh_context_memory_summary(
     context_memory: ContextMemory,
     *,
     force: bool = False,
+    target_sequence: int | None = None,
 ) -> ContextMemorySummaryUpdate:
-    return context_memory.refresh_summary(summarize=_summarize_records, force=force)
+    return context_memory.refresh_rolling_summary(
+        summarize=_summarize_records,
+        force=force,
+        target_sequence=target_sequence,
+    )
 
 
-def _summarize_records(records: list[dict[str, str]]) -> str:
+def _summarize_records(previous_summary: str, records: list[dict[str, object]]) -> str:
     payload = {
+        "previous_summary": previous_summary,
         "records": [
             {
-                "sequence": index,
-                "question": record["question"],
-                "final_answer": record["final_answer"],
+                "sequence": int(record.get("sequence", index)),
+                "question": str(record["question"]),
+                "final_answer": str(record["final_answer"]),
             }
             for index, record in enumerate(records, start=1)
         ],

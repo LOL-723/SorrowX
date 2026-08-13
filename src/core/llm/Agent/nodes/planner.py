@@ -14,6 +14,7 @@ from llm.Agent.state import (
     PlanStep,
     PlanStepState,
     PlanUpdate,
+    plan_step_to_state,
 )
 
 
@@ -107,7 +108,6 @@ def _planner_payload(
     payload: dict[str, object] = {
         "planner_mode": planner_mode,
         "question": question,
-        "document_id": state.get("document_id"),
         "context_memory": state.get("context_memory", []),
         "available_tools": _available_tools(),
     }
@@ -221,7 +221,7 @@ def _restore_plan_content(
             step_id=f"step_{index}" if force_step_ids else step.step_id or f"step_{index}",
             task=step.task,
         )
-        restored_steps.append(restored_step.model_dump())
+        restored_steps.append(plan_step_to_state(restored_step))
 
     return restored_steps
 

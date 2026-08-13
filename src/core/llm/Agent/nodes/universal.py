@@ -2,7 +2,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from set.config import settings
+from set.config import require_llm_settings
 from llm.Agent.state import AgentState
 from llm.tools import TOOL_ARGUMENTS, TOOL_DESCRIPTIONS
 from trace.recorder import current_run_id, get_trace_recorder
@@ -44,6 +44,7 @@ def _chat_completion(
     *,
     tool_count: int = 0,
 ) -> str:
+    settings = require_llm_settings()
     request: dict[str, Any] = {
         "model": settings.LLM_MODEL,
         "messages": [
@@ -73,6 +74,7 @@ def _chat_completion(
 
 
 def _openai_client() -> OpenAI:
+    settings = require_llm_settings()
     return OpenAI(
         api_key=settings.DEEPSEEK_API_KEY,
         base_url=settings.DEEPSEEK_BASE_URL,

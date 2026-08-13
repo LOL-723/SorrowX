@@ -1,33 +1,20 @@
 git reset --soft HEAD~1  删除最新提交记录(本地)
 git push --force-with-lease 删除最新提交记录(远程)
 
-Flow
+Agent runtime
 
-START
+All Agent requests use one execution entry point:
 
-  -> router_node
-  
-      -> AGENTLOOP -> END
-      
-      -> tool_selector_node -> tool_executor_node -> answer_node
-      
-      -> answer_node
-      
-  -> verifier_node
-  
-      -> finish -> END
-      
-      -> retry_answer -> answer_node
-      
-      -> retry_tool -> tool_selector_node
-      
-      -> retry_router -> router_node
-      
-      -> fail -> END
+```text
+Web /agent/ask ──────┐
+                     ├── AgentRuntime ── AgentLoopEngine
+CLI → Daemon RPC ────┘       planner → select_step → AgentLoop
+```
 
-Uploaded-document retrieval is only available inside the Agent route through
-the `retrieve_uploaded_document` tool. The normal tool route exposes only time,
-calculator, and weather tools.
+`/agent/ask` accepts `message` and an existing `session_id` as form fields. It
+returns `run_id`, `status`, and `message`. Uploaded-document retrieval, RAG,
+and per-request system prompts are not available on this route during the
+AgentLoop transition.
 
 CLI daemon
 

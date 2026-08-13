@@ -49,7 +49,6 @@ def react_node(state: AgentState) -> AgentState:
             observation = _execute_action(
                 action=acting["action"],
                 action_input=acting["action_input"],
-                document_id=state.get("document_id"),
             )
             result_summary = _summarize_turn_result(
                 question=question,
@@ -200,16 +199,11 @@ def _choose_action(
 def _execute_action(
     action: str,
     action_input: dict[str, Any],
-    document_id: str | None,
 ) -> str:
     if action == "none":
         return "No tool action executed."
 
-    arguments = dict(action_input)
-    if action == "retrieve_uploaded_document" and "document_id" not in arguments:
-        arguments["document_id"] = document_id
-
-    result = TOOL_REGISTRY[action](**arguments)
+    result = TOOL_REGISTRY[action](**action_input)
     return json.dumps(
         {
             "action": action,

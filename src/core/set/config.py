@@ -1,10 +1,11 @@
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
-    DEEPSEEK_API_KEY:str
-    DEEPSEEK_BASE_URL:str
-    LLM_MODEL:str
-    LLM_TIMEOUT:float
+    DEEPSEEK_API_KEY: str | None = None
+    DEEPSEEK_BASE_URL: str | None = None
+    LLM_MODEL: str | None = None
+    LLM_TIMEOUT: float = 30.0
     LLM_TEMPERATURE: float = 0.1
     HF_TOKEN: str | None = None
     RAG_STORAGE_DIR: str = "storage/rag"
@@ -24,3 +25,16 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 settings = Settings()
+
+
+def require_llm_settings() -> Settings:
+    missing = [
+        name
+        for name in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "LLM_MODEL")
+        if not getattr(settings, name)
+    ]
+    if missing:
+        raise RuntimeError(
+            "missing required LLM settings: " + ", ".join(missing)
+        )
+    return settings

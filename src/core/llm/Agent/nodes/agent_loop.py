@@ -16,6 +16,7 @@ from llm.Agent.state import (
     AgentLoopSignal,
     PlanStep,
     PlanStepState,
+    plan_step_to_state,
 )
 from llm.tools import TOOL_REGISTRY
 
@@ -119,7 +120,6 @@ def agent_loop_node(state: AgentState) -> AgentState:
                 observation = _execute_tool_call(
                     tool_name=decision["tool_name"],
                     arguments=decision["arguments"],
-                    document_id=state.get("document_id"),
                 )
                 loop_result["observation"] = observation
                 memory.append_loop_result(loop_result)
@@ -369,7 +369,7 @@ def _emit_agent_thought_trace(
     decision: dict[str, Any],
 ) -> None:
     observer = state.get("_event_callback")
-    if not callable(observer):
+    if observer is None:
         return
     observer(
         {
@@ -536,7 +536,7 @@ def _run_tool_error_subagent(
     step_id: str,
     task: str,
 ) -> AgentState:
-    subagent_step = PlanStep(step_id=step_id, task=task).model_dump()
+    subagent_step = plan_step_to_state(PlanStep(step_id=step_id, task=task))
     subagent_state = memory.subagent_state(
         parent_state=parent_state,
         question=question,
@@ -560,17 +560,12 @@ def _subagent_answer(subagent_update: AgentState, step_id: str) -> str:
 def _execute_tool_call(
     tool_name: str | None,
     arguments: dict[str, Any],
-    document_id: str | None,
 ) -> str:
     if tool_name is None:
         raise ValueError("tool_name is required for tool_call")
 
-    tool_arguments = dict(arguments)
-    if tool_name == "retrieve_uploaded_document" and "document_id" not in tool_arguments:
-        tool_arguments["document_id"] = document_id
-
     try:
-        result = TOOL_REGISTRY[tool_name](**tool_arguments)
+        result = TOOL_REGISTRY[tool_name](**arguments)
     except Exception as exc:
         return json.dumps(
             {
@@ -617,13 +612,14 @@ def _update_step_result(
     updated_plan = list(plan)
     step = updated_plan[current_step_index]
     try:
-        updated_plan[current_step_index] = PlanStep(
+        updated_step = PlanStep(
             step_id=step["step_id"],
             task=step["task"],
             status="done",
             result=result,
             retry_count=step.get("retry_count", 0),
-        ).model_dump()
+        )
+        updated_plan[current_step_index] = plan_step_to_state(updated_step)
     except (TypeError, ValidationError) as exc:
         raise ValueError("current plan step is invalid") from exc
 

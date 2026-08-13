@@ -76,7 +76,6 @@ The user message will provide:
 - plan: the executed plan
 - step_results: completed step results that passed review
 - failed_tools: tool names that failed during execution, if any
-- document_id: optional uploaded document id
 
 Rules:
 - Use only step_results as evidence.

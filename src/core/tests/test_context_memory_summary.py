@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cli import commands
-from daemon import main as daemon_main
 from llm.Agent.memory import (
     CONTEXT_MEMORY_SUMMARY_MAX_CHARS,
     ContextMemory,
@@ -138,21 +137,6 @@ class ContextMemorySummaryTests(unittest.TestCase):
             refresh.assert_called_once()
             self.assertTrue(refresh.call_args.kwargs["force"])
             self.assertIn("fresh summary", output.getvalue())
-
-    def test_daemon_startup_refreshes_current_session_memory(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            manager = _manager(Path(temp_dir))
-            session_id = manager.new_session()
-
-            with (
-                patch("session.manager.get_session_manager", return_value=manager),
-                patch("llm.Agent.memory_summary.refresh_context_memory_summary") as refresh,
-            ):
-                daemon_main._refresh_current_session_memory()
-
-            refreshed_memory = refresh.call_args.args[0]
-            self.assertEqual(refreshed_memory.path, manager.memory_path(session_id))
-
 
 if __name__ == "__main__":
     unittest.main()

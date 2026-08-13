@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, StrictInt, StrictStr
 
 
@@ -8,6 +10,12 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+
+
+class AgentResponse(BaseModel):
+    run_id: str
+    status: Literal["finished"]
+    message: str
 
 
 class SummaryOutput(BaseModel):

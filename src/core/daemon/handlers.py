@@ -153,11 +153,11 @@ def handle_agent_run(
     session_manager = get_session_manager()
     if not session_manager.session_exists(session_id):
         raise ProtocolError(f"session does not exist: {session_id}")
-    session_paths = session_manager.ensure_session_dirs(session_id)
+    session_manager.ensure_session_dirs(session_id)
 
-    from llm.Agent.AgentRuner import new_run_id
+    from llm.Agent.AgentRuntime import get_agent_runtime
 
-    run_id = new_run_id()
+    run_id = get_agent_runtime().new_run_id()
 
     task = asyncio.create_task(
         _run_agent_in_background(
@@ -165,7 +165,6 @@ def handle_agent_run(
             run_id=run_id,
             goal=goal.strip(),
             session_id=session_id,
-            context_memory_path=session_paths.memory_path,
         )
     )
     state.active_runs[run_id] = task
@@ -184,19 +183,15 @@ async def _run_agent_in_background(
     run_id: str,
     goal: str,
     session_id: str,
-    context_memory_path: Any,
 ) -> None:
     def run_sync() -> None:
-        from llm.Agent.AgentRuner import AgentRuner
+        from llm.Agent.AgentRuntime import AgentRequest, get_agent_runtime
 
-        runner = AgentRuner(
-            context_memory_path=context_memory_path,
-            session_id=session_id,
+        get_agent_runtime().run(
+            AgentRequest(goal=goal, session_id=session_id),
+            run_id=run_id,
+            event_bus=state.event_bus,
         )
-        try:
-            runner.run(goal, run_id=run_id, event_bus=state.event_bus)
-        except Exception:
-            return
 
     try:
         await asyncio.to_thread(run_sync)

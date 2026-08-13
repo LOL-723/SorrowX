@@ -1,6 +1,6 @@
 # llm/Agent/state.py
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Callable, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,7 @@ AgentLoopSignal = Literal[
 ]
 PlannerMode = Literal["initial", "replan", "step_replan"]
 FailureReason = Literal["planner_failed", "react_failed"]
+AgentEventCallback = Callable[[dict[str, Any]], None]
 
 MAX_PLAN_STEPS = 8
 MAX_REPLAN_COUNT = 1
@@ -77,10 +78,20 @@ class PlanStepState(TypedDict):
     retry_count: int
 
 
+def plan_step_to_state(step: PlanStep) -> PlanStepState:
+    return {
+        "step_id": step.step_id,
+        "task": step.task,
+        "status": step.status,
+        "result": step.result,
+        "retry_count": step.retry_count,
+    }
+
+
 class AgentState(TypedDict, total=False):
     question: str
-    document_id: str | None
     context_memory: str
+    _event_callback: AgentEventCallback
 
     plan: list[PlanStepState]
     plan_revision: int

@@ -105,7 +105,7 @@ def update_memory_command(argv: list[str]) -> int:
 
     print(
         f"Memory summary updated: {update.path} "
-        f"({update.record_count} source records)",
+        f"({update.record_count} source records; covered through {update.covered_through_sequence})",
         flush=True,
     )
     print(update.summary, flush=True)
@@ -120,12 +120,19 @@ def check_memory_command(argv: list[str]) -> int:
     session_id = manager.ensure_current_session()
     memory = ContextMemory(manager.memory_path(session_id))
     summary = memory.load_summary()
+    status = memory.status()
     if not summary:
         print(f"No memory summary found for {session_id}.", flush=True)
-        return 0
-
-    print(f"Memory summary: {memory.summary_path}", flush=True)
-    print(summary, flush=True)
+    else:
+        print(f"Memory summary: {memory.summary_path}", flush=True)
+        print(summary, flush=True)
+    print(
+        "Memory status: "
+        f"refresh={status.refresh_status} raw={status.raw_sequence} "
+        f"covered={status.summary_covered_sequence} "
+        f"fallback={status.needs_fallback}",
+        flush=True,
+    )
     return 0
 
 

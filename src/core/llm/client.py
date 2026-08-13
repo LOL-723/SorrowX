@@ -1,31 +1,24 @@
-import json
-from typing import Any
-
 from openai import OpenAI
 
-from set.config import settings
-from llm import langgraph
+from set.config import require_llm_settings, settings
 from trace.recorder import current_run_id, get_trace_recorder
 
 
 class LLMClient:
     def __init__(
         self,
-        api_key: str,
-        base_url: str,
-        model: str,
+        api_key: str | None,
+        base_url: str | None,
+        model: str | None,
         timeout: float = 30.0,
         temperature: float = 0.1,
     ):
         self.model = model
         self.temperature = temperature
-        self.langgraph = langgraph.build_graph()
-
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=timeout,
-        )
+        self.api_key = api_key
+        self.base_url = base_url
+        self.timeout = timeout
+        self.client: OpenAI | None = None
 
     def chat(
         self,
@@ -44,13 +37,13 @@ class LLMClient:
         recorder = get_trace_recorder()
         call_id = recorder.record_core_to_llm(
             run_id,
-            model=self.model,
+            model=self._model(),
             message_count=len(messages),
             tool_count=0,
         )
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = self._openai_client().chat.completions.create(
+                model=self._model(),
                 messages=messages,
                 temperature=self.temperature,
             )
@@ -77,13 +70,13 @@ class LLMClient:
         recorder = get_trace_recorder()
         call_id = recorder.record_core_to_llm(
             run_id,
-            model=self.model,
+            model=self._model(),
             message_count=len(messages),
             tool_count=0,
         )
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model,
+            stream = self._openai_client().chat.completions.create(
+                model=self._model(),
                 messages=messages,
                 temperature=self.temperature,
                 stream=True,
@@ -101,87 +94,20 @@ class LLMClient:
                 yield content
         recorder.record_llm_to_core(run_id, call_id=call_id, usage=None)
 
-    def Agent_Ask(
-        self,
-        user_message: str,
-        system_prompt: str | None = None,
-        file: Any | None = None,
-        use_rag: bool = False,
-    ) -> dict[str, Any]:
-        if not user_message or not user_message.strip():
-            raise ValueError("message cannot be empty")
-        if use_rag and file is None:
-            raise ValueError("RAG requires an uploaded file")
+    def _openai_client(self) -> OpenAI:
+        if self.client is None:
+            configured = require_llm_settings()
+            self.client = OpenAI(
+                api_key=self.api_key or configured.DEEPSEEK_API_KEY,
+                base_url=self.base_url or configured.DEEPSEEK_BASE_URL,
+                timeout=self.timeout,
+            )
+        return self.client
 
-        file_info = self._upload_optional_file(file) if use_rag else None
-        graph_result = self.run_langgraph(
-            user_message=user_message,
-            system_prompt=system_prompt,
-            file_info=file_info,
-            use_rag=use_rag,
-        )
-        return self._format_graph_json_result(graph_result)
-
-    def run_langgraph(
-        self,
-        user_message: str,
-        system_prompt: str | None = None,
-        file_info: dict[str, Any] | None = None,
-        use_rag: bool = False,
-    ) -> langgraph.LangGraphState:
-        initial_state: langgraph.LangGraphState = {
-            "question": user_message,
-            "system_prompt": system_prompt,
-            "use_rag": use_rag,
-            "retry_count": 0,
-            "verification_count": 0,
-            "answer_retry_count": 0,
-            "tool_retry_count": 0,
-            "chat_retry_count": 0,
-            "router_retry_count": 0,
-            "logs": [],
-        }
-        if file_info:
-            initial_state["file_info"] = file_info
-
-        return self.langgraph.invoke(initial_state)
-
-    def _format_graph_json_result(
-        self,
-        graph_result: langgraph.LangGraphState,
-    ) -> dict[str, Any]:
-        route = graph_result.get("route", "chat")
-        answer = graph_result.get("answer", "")
-        end_status = graph_result.get("end_status")
-        try:
-            parsed_answer = json.loads(answer)
-        except json.JSONDecodeError:
-            return {
-                "route": route,
-                "end_status": end_status,
-                "message": answer,
-            }
-
-        if isinstance(parsed_answer, dict):
-            parsed_answer["route"] = route
-            parsed_answer["end_status"] = end_status
-            return parsed_answer
-
-        return {
-            "route": route,
-            "end_status": end_status,
-            "data": parsed_answer,
-        }
-
-    def _upload_optional_file(self, file: Any | None) -> dict[str, Any] | None:
-        if file is None:
-            return None
-
-        import anyio
-        from llm.rag_service import rag_service
-
-        upload_result = anyio.run(rag_service.upload, file)
-        return upload_result.model_dump()
+    def _model(self) -> str:
+        if self.model:
+            return self.model
+        return require_llm_settings().LLM_MODEL or ""
 
 llm_client = LLMClient(
     api_key=settings.DEEPSEEK_API_KEY,

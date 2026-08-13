@@ -26,34 +26,3 @@
 /src/cli  cli前端进程相关目录
 /src/core 内核守护进程和Agent相关目录
 /src/core/llm  主要Agent设计目录
-
-### 任务规格
-
-# Task Spec
-
-## 1. User Goal
-用户真正想实现什么？
-
-## 2. Current State
-当前项目有哪些相关文件、已有能力、限制？
-
-## 3. Scope
-本次只改什么，不改什么？
-
-## 4. Acceptance Criteria
-完成后必须满足哪些可验证条件？
-
-## 5. Affected Files
-预计修改哪些文件？为什么？
-
-## 6. Implementation Plan
-分步骤说明，每一步对应哪个文件。
-
-## 7. Verification Plan
-运行哪些测试、命令、接口请求来证明完成？
-
-## 8. Risk Points
-可能破坏什么？如何避免？
-
-## 9. Rollback Plan
-如果改坏了，如何回退？

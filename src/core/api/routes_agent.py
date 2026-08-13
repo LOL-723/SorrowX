@@ -1,31 +1,34 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Form, HTTPException
 
-from llm.client import llm_client
+from llm.Agent.AgentRuntime import AgentRequest, get_agent_runtime
+from schemas.llm import AgentResponse
 
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 
 
-@router.post("/ask", response_model=dict)
+@router.post("/ask", response_model=AgentResponse)
 def Agent_Ask(
     message: str = Form(...),
-    system_prompt: str | None = Form(default=None),
-    use_rag: bool = Form(default=False),
-    file: UploadFile | None = File(default=None),
+    session_id: str = Form(...),
 ):
     try:
-        return llm_client.Agent_Ask(
-            user_message=message,
-            system_prompt=system_prompt,
-            file=file,
-            use_rag=use_rag,
+        result = get_agent_runtime().run(
+            AgentRequest(goal=message, session_id=session_id),
         )
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Agent request failed: {str(e)}"
         )
+
+    if result.status != "finished":
+        raise HTTPException(status_code=500, detail=result.error or "agent run failed")
+
+    return AgentResponse(
+        run_id=result.run_id,
+        status=result.status,
+        message=result.answer,
+    )
