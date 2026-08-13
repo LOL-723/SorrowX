@@ -1,5 +1,6 @@
 """
 import json
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -18,7 +19,8 @@ from llm.Agent.state import (
     PlanStepState,
     ReactResult,
 )
-from llm.tools import TOOL_REGISTRY
+from llm.Agent.tools import BUILTIN_TOOL_REGISTRY, DEFAULT_TOOL_EXECUTOR
+from llm.Agent.tools.contracts import ALL_PERMISSIONS, ToolContext
 
 
 def react_node(state: AgentState) -> AgentState:
@@ -187,7 +189,7 @@ def _choose_action(
         "acting.action_input",
         dict,
     )
-    if action != "none" and action not in TOOL_REGISTRY:
+    if action != "none" and BUILTIN_TOOL_REGISTRY.get(action) is None:
         raise ValueError(f"unknown action: {action}")
 
     return {
@@ -203,12 +205,18 @@ def _execute_action(
     if action == "none":
         return "No tool action executed."
 
-    result = TOOL_REGISTRY[action](**action_input)
+    result = DEFAULT_TOOL_EXECUTOR.execute(
+        action,
+        action_input,
+        ToolContext(
+            run_id=None,
+            session_id=None,
+            workspace_root=Path.cwd(),
+            granted_permissions=ALL_PERMISSIONS,
+        ),
+    )
     return json.dumps(
-        {
-            "action": action,
-            "result": result,
-        },
+        {"action": action, **result.to_observation()},
         ensure_ascii=False,
         default=str,
     )

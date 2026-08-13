@@ -4,7 +4,8 @@ from openai import OpenAI
 
 from set.config import require_llm_settings
 from llm.Agent.state import AgentState
-from llm.tools import TOOL_ARGUMENTS, TOOL_DESCRIPTIONS
+from llm.Agent.tools import BUILTIN_TOOL_REGISTRY
+from llm.Agent.tools.contracts import ALL_PERMISSIONS
 from trace.recorder import current_run_id, get_trace_recorder
 
 
@@ -26,15 +27,10 @@ def add_log(
 
 def _available_tools(excluded_tools: list[str] | None = None) -> list[dict[str, Any]]:
     excluded_tool_names = set(excluded_tools or [])
-    return [
-        {
-            "name": name,
-            "description": description,
-            "arguments": TOOL_ARGUMENTS.get(name, {}),
-        }
-        for name, description in TOOL_DESCRIPTIONS.items()
-        if name not in excluded_tool_names
-    ]
+    return BUILTIN_TOOL_REGISTRY.model_tools(
+        ALL_PERMISSIONS,
+        excluded_names=excluded_tool_names,
+    )
 
 
 def _chat_completion(

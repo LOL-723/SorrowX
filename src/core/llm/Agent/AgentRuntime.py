@@ -1,6 +1,6 @@
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TextIO
@@ -26,6 +26,7 @@ class AgentRunContext:
     session_id: str
     context_memory_path: Path
     context_memory: str
+    workspace_root: Path = field(default_factory=Path.cwd)
 
 
 @dataclass(frozen=True)
@@ -83,12 +84,14 @@ class AgentRuntime:
         extra_handlers: list[EventHandler] | None = None,
         session_manager: SessionManager | None = None,
         memory_scheduler: MemoryRefreshScheduler | None = None,
+        workspace_root: str | Path | None = None,
     ) -> None:
         self.engine = engine
         self.runs_dir = Path(runs_dir) if runs_dir is not None else RUNS_DIR
         self.extra_handlers = list(extra_handlers or [])
         self.session_manager = session_manager or get_session_manager()
         self.memory_scheduler = memory_scheduler or MemoryRefreshScheduler()
+        self.workspace_root = Path(workspace_root) if workspace_root is not None else Path.cwd()
 
     def new_run_id(self) -> str:
         timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -171,6 +174,7 @@ class AgentRuntime:
             session_id=request.session_id,
             context_memory_path=paths.memory_path,
             context_memory=memory.load_context(),
+            workspace_root=self.workspace_root.resolve(),
         )
 
     def _remember_success(

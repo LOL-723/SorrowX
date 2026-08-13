@@ -3,6 +3,7 @@
 from typing import Any, Callable, Literal, TypedDict
 
 from pydantic import BaseModel, Field
+from llm.Agent.tools.contracts import ToolContext
 
 
 StepStatus = Literal["pending", "running", "done", "failed"]
@@ -91,6 +92,7 @@ def plan_step_to_state(step: PlanStep) -> PlanStepState:
 class AgentState(TypedDict, total=False):
     question: str
     context_memory: str
+    tool_context: ToolContext
     _event_callback: AgentEventCallback
 
     plan: list[PlanStepState]

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -18,7 +19,8 @@ from llm.Agent.state import (
     PlanStepState,
     plan_step_to_state,
 )
-from llm.tools import TOOL_REGISTRY
+from llm.Agent.tools import BUILTIN_TOOL_REGISTRY, DEFAULT_TOOL_EXECUTOR
+from llm.Agent.tools.contracts import ALL_PERMISSIONS, ToolContext
 
 
 def agent_loop_node(state: AgentState) -> AgentState:
@@ -120,6 +122,7 @@ def agent_loop_node(state: AgentState) -> AgentState:
                 observation = _execute_tool_call(
                     tool_name=decision["tool_name"],
                     arguments=decision["arguments"],
+                    context=state.get("tool_context"),
                 )
                 loop_result["observation"] = observation
                 memory.append_loop_result(loop_result)
@@ -133,6 +136,8 @@ def agent_loop_node(state: AgentState) -> AgentState:
                         allow_empty=False,
                     )
                     memory.record_failed_tool(tool_name)
+                    if not _observation_recoverable(observation):
+                        continue
                     if memory.agent_depth >= 1:
                         failed_state = memory.apply_to_state(state)
                         return _agent_loop_failed(
@@ -311,7 +316,7 @@ def _decide_next_loop(
             str,
             allow_empty=False,
         )
-        if tool_name not in TOOL_REGISTRY or tool_name in memory.failed_tools:
+        if BUILTIN_TOOL_REGISTRY.get(tool_name) is None or tool_name in memory.failed_tools:
             raise ValueError(f"unknown tool_name: {tool_name}")
     elif tool_name is not None:
         raise ValueError("tool_name must be null unless decide_type is tool_call")
@@ -529,6 +534,11 @@ def _observation_error(observation: str) -> str | None:
     return error
 
 
+def _observation_recoverable(observation: str) -> bool:
+    data = json.loads(observation)
+    return bool(data.get("recoverable", True))
+
+
 def _run_tool_error_subagent(
     parent_state: AgentState,
     memory: OneRunMemory,
@@ -560,29 +570,20 @@ def _subagent_answer(subagent_update: AgentState, step_id: str) -> str:
 def _execute_tool_call(
     tool_name: str | None,
     arguments: dict[str, Any],
+    context: ToolContext | None = None,
 ) -> str:
     if tool_name is None:
         raise ValueError("tool_name is required for tool_call")
 
-    try:
-        result = TOOL_REGISTRY[tool_name](**arguments)
-    except Exception as exc:
-        return json.dumps(
-            {
-                "tool_name": tool_name,
-                "result": None,
-                "error": str(exc),
-            },
-            ensure_ascii=False,
-            default=str,
-        )
-
+    tool_context = context or ToolContext(
+        run_id=None,
+        session_id=None,
+        workspace_root=Path.cwd(),
+        granted_permissions=ALL_PERMISSIONS,
+    )
+    result = DEFAULT_TOOL_EXECUTOR.execute(tool_name, arguments, tool_context)
     return json.dumps(
-        {
-            "tool_name": tool_name,
-            "result": result,
-            "error": None,
-        },
+        result.to_observation(),
         ensure_ascii=False,
         default=str,
     )

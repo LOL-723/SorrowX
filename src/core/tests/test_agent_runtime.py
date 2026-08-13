@@ -89,17 +89,18 @@ class AgentRuntimeTests(unittest.TestCase):
             memory = ContextMemory(manager.memory_path(session_id))
             memory.remember(question="old question", final_answer="old answer")
             memory.refresh_summary(summarize=lambda _: "old memory summary")
+            scheduler = MemoryRefreshScheduler(
+                refresh=lambda saved_memory, target: saved_memory.refresh_rolling_summary(
+                    summarize=lambda previous, _: previous or "refreshed summary",
+                    target_sequence=target,
+                )
+            )
             runtime = AgentRuntime(
                 engine=AgentLoopEngine(),
                 runs_dir=root / "runs",
                 extra_handlers=[seen_events.append],
                 session_manager=manager,
-                memory_scheduler=MemoryRefreshScheduler(
-                    refresh=lambda saved_memory, target: saved_memory.refresh_rolling_summary(
-                        summarize=lambda previous, _: previous or "refreshed summary",
-                        target_sequence=target,
-                    )
-                ),
+                memory_scheduler=scheduler,
             )
             with (
                 patch("llm.Agent.AgentEngine.planner_node", side_effect=fake_planner),
@@ -117,6 +118,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 memory.load()[-1],
                 {"question": "complex task", "final_answer": "final answer"},
             )
+            self.assertTrue(scheduler.wait_for_idle())
             file_events = [
                 json.loads(line)
                 for line in result.events_path.read_text(encoding="utf-8").splitlines()

@@ -9,15 +9,15 @@ from llm.Agent.tools.operation_tools import (
     run_tests_tool,
     write_file_tool,
 )
-from llm.tools import TOOL_REGISTRY
+from llm.Agent.tools import BUILTIN_TOOL_REGISTRY
 
 
 class OperationToolsTest(unittest.TestCase):
     def test_operation_tools_are_registered(self) -> None:
-        self.assertIs(TOOL_REGISTRY["list_dir"], list_dir_tool)
-        self.assertIs(TOOL_REGISTRY["read_file"], read_file_tool)
-        self.assertIs(TOOL_REGISTRY["write_file"], write_file_tool)
-        self.assertIs(TOOL_REGISTRY["run_tests"], run_tests_tool)
+        self.assertIs(BUILTIN_TOOL_REGISTRY.require("list_dir").handler, list_dir_tool)
+        self.assertIs(BUILTIN_TOOL_REGISTRY.require("read_file").handler, read_file_tool)
+        self.assertIs(BUILTIN_TOOL_REGISTRY.require("write_file").handler, write_file_tool)
+        self.assertIs(BUILTIN_TOOL_REGISTRY.require("run_tests").handler, run_tests_tool)
 
     def test_list_dir_prioritizes_src_and_preserves_source_names(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

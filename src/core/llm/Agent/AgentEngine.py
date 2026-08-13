@@ -5,6 +5,7 @@ from llm.Agent.AgentRuntime import AgentRequest, AgentRunContext, EngineResult
 from llm.Agent.memory import OneRunMemory
 from llm.Agent.nodes import agent_loop_node, planner_node, select_next_step_node
 from llm.Agent.nodes.universal import _chat_completion
+from llm.Agent.tools.contracts import ALL_PERMISSIONS, ToolContext
 from llm.Agent.prompt import FINAL_RESULT_SUMMARY_PROMPT
 from llm.Agent.state import (
     AgentEventCallback,
@@ -42,6 +43,12 @@ class AgentLoopEngine:
         agent_state = OneRunMemory.initial_state(question=request.goal)
         agent_state["_event_callback"] = emit
         agent_state["context_memory"] = context.context_memory
+        agent_state["tool_context"] = ToolContext(
+            run_id=context.run_id,
+            session_id=context.session_id,
+            workspace_root=context.workspace_root,
+            granted_permissions=ALL_PERMISSIONS,
+        )
 
         for _ in range(MAX_AGENT_NODE_ITERATIONS):
             should_plan = (
