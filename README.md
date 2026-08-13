@@ -1,4 +1,5 @@
 git reset --soft HEAD~1  删除最新提交记录(本地)
+
 git push --force-with-lease 删除最新提交记录(远程)
 
 Agent runtime
