@@ -241,7 +241,7 @@ _default_runtime: AgentRuntime | None = None
 def get_agent_runtime() -> AgentRuntime:
     global _default_runtime
     if _default_runtime is None:
-        from llm.Agent.AgentEngine import AgentLoopEngine
+        from llm.Agent.AgentEngine import AgentGraphEngine
 
-        _default_runtime = AgentRuntime(engine=AgentLoopEngine())
+        _default_runtime = AgentRuntime(engine=AgentGraphEngine())
     return _default_runtime

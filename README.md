@@ -8,7 +8,7 @@ All Agent requests use one execution entry point:
 
 ```text
 Web /agent/ask ──────┐
-                     ├── AgentRuntime ── AgentLoopEngine
+                     ├── AgentRuntime ── AgentGraphEngine
 CLI → Daemon RPC ────┘       planner → select_step → AgentLoop
 ```
 
@@ -67,8 +67,8 @@ Session commands manage per-session memory and trace storage:
 - `sorrow session list` lists all known session ids and marks the current one.
 - `sorrow session current` prints the current session id.
 - `sorrow session del session_id` deletes that session's memory and trace data. The current session cannot be deleted; switch to another session first.
-- `sorrow UpdateMemory` rebuilds the current session's concise memory summary from its latest ten question/answer records.
-- `sorrow CheckMemory` displays the current session's memory summary without calling the model.
+- `sorrow UpdateMemory` merges raw records not yet covered by the current session's concise memory summary. It retries records left uncovered by an earlier failed refresh; if every raw record is already covered, it does not call the model and displays `记忆已为最新状态`.
+- `sorrow CheckMemory` displays only the current session's persisted memory summary. It does not call the model and does not append uncovered raw records.
 
 `sorrow run` and `sorrow trace` require a session. If no current session exists,
 the CLI creates one automatically. `sorrow ping` and `sorrow shutdown` do not use

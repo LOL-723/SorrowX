@@ -94,21 +94,18 @@ def update_memory_command(argv: list[str]) -> int:
     session_id = manager.ensure_current_session()
     memory = ContextMemory(manager.memory_path(session_id))
     try:
-        update = refresh_context_memory_summary(memory, force=True)
+        # A manual update is a retry for records not yet covered by the summary.
+        # It deliberately does not rebuild an already current summary.
+        update = refresh_context_memory_summary(memory, force=False)
     except Exception as exc:
-        print(f"Memory summary update failed: {exc}", flush=True)
+        print(f"记忆更新失败：{exc}", flush=True)
         return 1
 
-    if update.status == "empty":
-        print(f"No context memory to summarize for {session_id}.", flush=True)
+    if update.status in {"empty", "unchanged"}:
+        print("记忆已为最新状态", flush=True)
         return 0
 
-    print(
-        f"Memory summary updated: {update.path} "
-        f"({update.record_count} source records; covered through {update.covered_through_sequence})",
-        flush=True,
-    )
-    print(update.summary, flush=True)
+    print("记忆已更新", flush=True)
     return 0
 
 
@@ -120,19 +117,10 @@ def check_memory_command(argv: list[str]) -> int:
     session_id = manager.ensure_current_session()
     memory = ContextMemory(manager.memory_path(session_id))
     summary = memory.load_summary()
-    status = memory.status()
     if not summary:
-        print(f"No memory summary found for {session_id}.", flush=True)
+        print("当前没有记忆摘要。", flush=True)
     else:
-        print(f"Memory summary: {memory.summary_path}", flush=True)
         print(summary, flush=True)
-    print(
-        "Memory status: "
-        f"refresh={status.refresh_status} raw={status.raw_sequence} "
-        f"covered={status.summary_covered_sequence} "
-        f"fallback={status.needs_fallback}",
-        flush=True,
-    )
     return 0
 
 
