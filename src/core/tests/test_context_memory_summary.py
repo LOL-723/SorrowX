@@ -99,6 +99,7 @@ class ContextMemorySummaryTests(unittest.TestCase):
             memory = ContextMemory(manager.memory_path(session_id))
             memory.remember(question="question", final_answer="answer")
             memory.refresh_summary(summarize=lambda _: "saved summary")
+            memory.remember(question="uncovered question", final_answer="uncovered answer")
             output = StringIO()
 
             with (
@@ -109,8 +110,10 @@ class ContextMemorySummaryTests(unittest.TestCase):
 
             self.assertEqual(memory.load_summary(), "saved summary")
             self.assertIn("saved summary", output.getvalue())
+            self.assertNotIn("uncovered question", output.getvalue())
+            self.assertNotIn("uncovered answer", output.getvalue())
 
-    def test_update_memory_command_forces_summary_refresh(self) -> None:
+    def test_update_memory_command_refreshes_only_uncovered_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manager = _manager(Path(temp_dir))
             session_id = manager.new_session()
@@ -135,8 +138,52 @@ class ContextMemorySummaryTests(unittest.TestCase):
                 self.assertEqual(commands.update_memory_command([]), 0)
 
             refresh.assert_called_once()
-            self.assertTrue(refresh.call_args.kwargs["force"])
-            self.assertIn("fresh summary", output.getvalue())
+            self.assertFalse(refresh.call_args.kwargs["force"])
+            self.assertEqual(output.getvalue().strip(), "记忆已更新")
+
+    def test_update_memory_command_skips_current_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = _manager(Path(temp_dir))
+            manager.new_session()
+            output = StringIO()
+            update = ContextMemorySummaryUpdate(
+                status="unchanged",
+                path=Path(temp_dir) / "summary.md",
+                summary="existing summary",
+                record_count=1,
+            )
+            with (
+                patch.object(commands, "get_session_manager", return_value=manager),
+                patch.object(commands, "refresh_context_memory_summary", return_value=update) as refresh,
+                redirect_stdout(output),
+            ):
+                self.assertEqual(commands.update_memory_command([]), 0)
+
+            refresh.assert_called_once()
+            self.assertEqual(output.getvalue().strip(), "记忆已为最新状态")
+
+    def test_manual_refresh_retries_raw_records_left_uncovered_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            memory = ContextMemory(Path(temp_dir) / "context_memory.jsonl")
+            memory.remember(question="first", final_answer="first answer")
+            memory.refresh_rolling_summary(
+                summarize=lambda previous, records: previous + " first",
+            )
+            memory.remember(question="second", final_answer="second answer")
+            memory.mark_refresh_failed(2)
+
+            seen_batches: list[list[str]] = []
+            update = memory.refresh_rolling_summary(
+                summarize=lambda previous, records: (
+                    seen_batches.append([str(record["question"]) for record in records])
+                    or previous + " second"
+                ),
+            )
+
+            self.assertEqual(update.status, "updated")
+            self.assertEqual(seen_batches, [["second"]])
+            self.assertEqual(memory.status().summary_covered_sequence, 2)
+            self.assertIsNone(memory.status().failed_at_sequence)
 
 if __name__ == "__main__":
     unittest.main()

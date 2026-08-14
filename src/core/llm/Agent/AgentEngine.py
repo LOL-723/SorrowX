@@ -183,3 +183,187 @@ def _summarize_agent_answer(agent_state: AgentState) -> str:
     if isinstance(final_answer, str) and final_answer.strip():
         return final_answer
     return content
+
+
+GRAPH_RECURSION_LIMIT = MAX_AGENT_NODE_ITERATIONS * 6 + 16
+
+
+class AgentGraphState(AgentState, total=False):
+    """Private LangGraph state used by the compatibility graph engine."""
+
+    graph_iteration_count: int
+    final_answer: str
+
+
+class AgentGraphEngine(AgentLoopEngine):
+    """LangGraph-backed equivalent of the legacy outer Agent loop.
+
+    Graph v0 deliberately keeps the planner, selector and complete ReAct loop
+    intact.  Internal routing nodes do not publish public node events, so the
+    Runtime-facing event stream remains compatible with AgentLoopEngine.
+    """
+
+    def __init__(self) -> None:
+        self._compiled_graph = self._build_graph()
+
+    def execute(
+        self,
+        request: AgentRequest,
+        context: AgentRunContext,
+        emit: EventEmitter,
+    ) -> EngineResult:
+        initial_state: AgentGraphState = {
+            "question": request.goal,
+            "context_memory": context.context_memory,
+            "tool_context": ToolContext(
+                run_id=context.run_id,
+                session_id=context.session_id,
+                workspace_root=context.workspace_root,
+                granted_permissions=ALL_PERMISSIONS,
+            ),
+            "_event_callback": emit,
+            "graph_iteration_count": 0,
+        }
+        final_state = self._compiled_graph.invoke(
+            initial_state,
+            config={"recursion_limit": GRAPH_RECURSION_LIMIT},
+        )
+        return EngineResult(answer=str(final_state.get("final_answer", "")))
+
+    def _build_graph(self):
+        from langgraph.graph import END, START, StateGraph
+
+        builder = StateGraph(AgentGraphState)
+        builder.add_node("bootstrap", self._bootstrap)
+        builder.add_node("cycle_gate", self._cycle_gate)
+        builder.add_node("planner_node", self._planner_graph_node)
+        builder.add_node("select_next_step_node", self._select_graph_node)
+        builder.add_node("step_started", self._step_started)
+        builder.add_node("legacy_agent_loop_node", self._legacy_agent_loop_graph_node)
+        builder.add_node("step_finished", self._step_finished)
+        builder.add_node("finalize", self._finalize)
+
+        builder.add_edge(START, "bootstrap")
+        builder.add_edge("bootstrap", "cycle_gate")
+        builder.add_conditional_edges(
+            "cycle_gate",
+            self._route_cycle,
+            {
+                "planner_node": "planner_node",
+                "select_next_step_node": "select_next_step_node",
+            },
+        )
+        builder.add_edge("planner_node", "cycle_gate")
+        builder.add_conditional_edges(
+            "select_next_step_node",
+            self._route_after_select,
+            {
+                "finalize": "finalize",
+                "step_started": "step_started",
+            },
+        )
+        builder.add_edge("step_started", "legacy_agent_loop_node")
+        builder.add_edge("legacy_agent_loop_node", "step_finished")
+        builder.add_edge("step_finished", "cycle_gate")
+        builder.add_edge("finalize", END)
+        return builder.compile()
+
+    @staticmethod
+    def _bootstrap(state: AgentGraphState) -> AgentGraphState:
+        question = state.get("question", "")
+        return {
+            **OneRunMemory.initial_state(question=question),
+            "graph_iteration_count": 0,
+        }
+
+    @staticmethod
+    def _cycle_gate(state: AgentGraphState) -> AgentGraphState:
+        iteration_count = int(state.get("graph_iteration_count", 0) or 0) + 1
+        if iteration_count > MAX_AGENT_NODE_ITERATIONS:
+            raise RuntimeError("agent exceeded graph iteration limit")
+        return {"graph_iteration_count": iteration_count}
+
+    @staticmethod
+    def _route_cycle(state: AgentGraphState) -> str:
+        should_plan = (
+            state.get("planner_mode") in {"replan", "step_replan"}
+            or "plan" not in state
+        )
+        return "planner_node" if should_plan else "select_next_step_node"
+
+    def _planner_graph_node(self, state: AgentGraphState) -> AgentGraphState:
+        emit = self._event_emitter(state)
+        merged = self._run_node(
+            state=state,
+            node_name="planner_node",
+            node=planner_node,
+            emit=emit,
+        )
+        self._raise_if_failed(merged)
+        return merged
+
+    def _select_graph_node(self, state: AgentGraphState) -> AgentGraphState:
+        emit = self._event_emitter(state)
+        merged = self._run_node(
+            state=state,
+            node_name="select_next_step_node",
+            node=select_next_step_node,
+            emit=emit,
+        )
+        self._raise_if_failed(merged)
+        return merged
+
+    @staticmethod
+    def _route_after_select(state: AgentGraphState) -> str:
+        if state.get("should_continue_next") == "finish":
+            return "finalize"
+        return "step_started"
+
+    def _step_started(self, state: AgentGraphState) -> AgentGraphState:
+        current_step = _current_step(state)
+        if current_step is not None:
+            self._event_emitter(state)(
+                {
+                    "type": "agent.step.started",
+                    "step_id": current_step.get("step_id"),
+                    "task": current_step.get("task"),
+                }
+            )
+        return {}
+
+    def _legacy_agent_loop_graph_node(
+        self,
+        state: AgentGraphState,
+    ) -> AgentGraphState:
+        emit = self._event_emitter(state)
+        merged = self._run_node(
+            state=state,
+            node_name="agent_loop_node",
+            node=agent_loop_node,
+            emit=emit,
+        )
+        self._raise_if_failed(merged)
+        return merged
+
+    def _step_finished(self, state: AgentGraphState) -> AgentGraphState:
+        current_step = _current_step(state)
+        if current_step is not None and current_step.get("status") == "done":
+            self._event_emitter(state)(
+                {
+                    "type": "agent.step.finished",
+                    "step_id": current_step.get("step_id"),
+                    "result": current_step.get("result"),
+                }
+            )
+        return {}
+
+    @staticmethod
+    def _finalize(state: AgentGraphState) -> AgentGraphState:
+        return {"final_answer": _summarize_agent_answer(state)}
+
+    @staticmethod
+    def _event_emitter(state: AgentGraphState) -> EventEmitter:
+        emit = state.get("_event_callback")
+        if emit is None:
+            raise RuntimeError("agent event callback is missing")
+        return emit
