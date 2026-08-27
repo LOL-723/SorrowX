@@ -73,3 +73,5 @@ Session commands manage per-session memory and trace storage:
 `sorrow run` and `sorrow trace` require a session. If no current session exists,
 the CLI creates one automatically. `sorrow ping` and `sorrow shutdown` do not use
 sessions.
+
+思考：GraphEngining，Tavily的使用，Redis+Mysql+WebSocket，RAG
