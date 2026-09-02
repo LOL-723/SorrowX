@@ -43,6 +43,7 @@ class AgentLoopEngine:
         agent_state = OneRunMemory.initial_state(question=request.goal)
         agent_state["_event_callback"] = emit
         agent_state["context_memory"] = context.context_memory
+        agent_state["context_memory_summary"] = context.context_memory_summary
         agent_state["tool_context"] = ToolContext(
             run_id=context.run_id,
             session_id=context.session_id,
@@ -215,6 +216,7 @@ class AgentGraphEngine(AgentLoopEngine):
         initial_state: AgentGraphState = {
             "question": request.goal,
             "context_memory": context.context_memory,
+            "context_memory_summary": context.context_memory_summary,
             "tool_context": ToolContext(
                 run_id=context.run_id,
                 session_id=context.session_id,

@@ -1,65 +1,52 @@
-from llm.Agent.state import MAX_PLAN_STEPS, MAX_REACT_TURNS_PER_STEP
+from llm.Agent.state import (
+    FINDING_MISSING_THRESHOLD,
+    MAX_PLAN_STEPS,
+    MAX_REACT_TURNS_PER_STEP,
+)
 
 #Plan-and-Execute
 PLANNER_PROMPT = f"""
-You are the planning node for an Agent.
+You are the planning stage of an autonomous Agent. Return a concise,
+adaptive plan for the user's goal.
 
-Your job is to create a short, adaptive plan that lets the Agent make progress
-step by step. The plan should choose the next useful evidence to collect, not
-pre-enumerate a complete investigation.
-The user message will provide:
-- planner_mode: "initial", "replan", or "step_replan"
-- question: the original user question
-- context_memory: a concise summary of prior conversation context that may help
-  infer user context before planning
-- available_tools: the complete list of available tools
-- plan: the existing plan, when replanning
-- completed_steps: completed step results, when replanning
-- current_step: the current step, when step replanning
-- react_results: current step loop results, when step replanning
-- no_finding_count: current repeated unrelated-investigation count, when step
-  replanning
-- last_tool_observation: the observation that overturned the previous
-  assumption, when overall replanning
+Input JSON contains question, planner_mode, context_memory_summary (at most 300
+characters), and available_tools as names with short descriptions. Replanning
+also contains the old plan, completed work, triggering react_results,
+current_step or last_tool_observation when relevant, and an explicit
+replan_signal.
 
-Rules:
-- Create no more than {MAX_PLAN_STEPS} steps.
-- In planner_mode "initial", create a plan from the question.
-- In planner_mode "replan", create a fresh full plan from the question and the
-  overturning tool observation. The old plan is context only and must not be
-  patched in place.
-- In planner_mode "step_replan", preserve the already completed work described
-  in completed_steps and create only the replacement steps needed from the
-  current step onward.
-- Use the available tools list to decide what work can be delegated to tools.
-- Do not invent tools that are not in the available tools list.
-- Use context_memory only to understand prior conversation context and choose a
-  better plan. Do not treat context_memory as verified evidence for the current
-  answer, and ignore unrelated memory.
-- Each step must be specific, actionable, and independently executable.
-- Keep steps ordered by dependency.
-- For diagnostic questions, create a diagnostic strategy instead of a complete
-  troubleshooting tree.
-- Do not enumerate every possible cause or every system component up front.
-- Each diagnostic step must gather evidence that narrows the problem space or
-  decides which path should be checked next.
-- Later steps may depend on evidence from earlier steps; write them as adaptive
-  next moves, not as fixed checks of every possible branch.
-- Prefer staged plans such as: reproduce or localize the failure boundary,
-  inspect the most likely link based on that evidence, then fix or explain the
-  root cause.
-- Use stable step ids in ascending order: step_1, step_2, step_3, ...
-- Do not include status, result, retry_count, comments, markdown, or explanation.
-- If the question can be answered directly without tools, still create a minimal
-  plan with one or more reasoning/answering steps.
+Each Step is one stage-level cognitive or work objective: something to learn,
+decide, produce, change, or verify. It is not a tool call. The executor chooses
+tools and actions, so never prescribe tool names, arguments, or fixed action
+sequences.
 
-Return exactly one valid JSON object and nothing else.
-The JSON object must match this shape:
+Requirements:
+- Return 1 to {MAX_PLAN_STEPS} distinct Steps, ordered by dependency and limited
+  to the useful planning horizon. Each must state an outcome whose completion
+  is recognizable.
+- initial: create the shortest sufficient plan.
+- overturning: evidence invalidated the current direction; create a fresh plan
+  for remaining work without repeating completed work.
+- finding_missing: replace the current and later stages with a materially
+  different path; preserve completed work and abandon the failed direction.
+- Obey replan_signal; never infer its type from traces, counts, or the old plan.
+- Use available_tools only to judge feasibility; never invent tools or make
+  tool use a Step.
+- Treat context_memory_summary only as prior-conversation context, not verified
+  evidence; ignore unrelated memory.
+- For diagnosis, narrow evidence progressively instead of listing every cause.
+- If no tool is needed, use one minimal reasoning or answer-production Step.
+- Use ascending ids: step_1, step_2, ... . For finding_missing, start with
+  current_step.step_id.
+- Return only JSON without status, results, retry counts, comments, or markdown.
+
+Return exactly:
 {{
+  "reason": "brief rationale",
   "steps": [
     {{
       "step_id": "step_1",
-      "task": "specific task"
+      "task": "stage-level cognitive or work objective"
     }}
   ]
 }}
@@ -206,7 +193,7 @@ Rules:
   react_results and clearly moves to another investigation direction.
 - Do not set Signal to finding_missing because of your own counting. The
   application code accumulates no_finding and triggers finding_missing when the
-  count reaches 6.
+  count reaches {FINDING_MISSING_THRESHOLD}.
 - Signal must be null unless a correction signal is needed.
 - Signal may only be one of: overthink, tool_error, overturning,
   finding_missing, or null.

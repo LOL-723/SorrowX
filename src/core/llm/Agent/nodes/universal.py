@@ -33,6 +33,19 @@ def _available_tools(excluded_tools: list[str] | None = None) -> list[dict[str, 
     )
 
 
+def _available_tool_summaries(
+    excluded_tools: list[str] | None = None,
+) -> list[dict[str, str]]:
+    excluded_tool_names = set(excluded_tools or [])
+    return [
+        {"name": spec.name, "description": spec.description}
+        for spec in BUILTIN_TOOL_REGISTRY.available_for(
+            ALL_PERMISSIONS,
+            excluded_names=excluded_tool_names,
+        )
+    ]
+
+
 def _chat_completion(
     system_prompt: str,
     user_message: str,

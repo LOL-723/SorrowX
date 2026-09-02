@@ -27,6 +27,7 @@ class AgentRunContext:
     context_memory_path: Path
     context_memory: str
     workspace_root: Path = field(default_factory=Path.cwd)
+    context_memory_summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,7 @@ class AgentRuntime:
             context_memory_path=paths.memory_path,
             context_memory=memory.load_context(),
             workspace_root=self.workspace_root.resolve(),
+            context_memory_summary=memory.load_valid_summary(),
         )
 
     def _remember_success(

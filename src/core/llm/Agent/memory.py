@@ -8,7 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from llm.Agent.state import AgentLoopSignal, AgentState, PlanStepState
+from llm.Agent.state import (
+    FINDING_MISSING_THRESHOLD,
+    AgentLoopSignal,
+    AgentState,
+    PlanStepState,
+)
 
 
 DEFAULT_CONTEXT_MEMORY_PATH = (
@@ -133,7 +138,7 @@ class OneRunMemory:
 
         next_count = self.no_finding_counts.get(step_id, 0) + 1
         self.no_finding_counts[step_id] = next_count
-        if next_count >= 6:
+        if next_count >= FINDING_MISSING_THRESHOLD:
             return "finding_missing"
         return None
 
@@ -276,6 +281,16 @@ class ContextMemory:
     def load_summary(self) -> str:
         with self._lock:
             summary, _ = self._read_summary_file_locked()
+            return summary
+
+    def load_valid_summary(self) -> str:
+        """Return only a valid rolling summary, without raw-history fallback."""
+        with self._lock:
+            records = self._load_records_locked()
+            state = self._read_state_locked(records)
+            summary, metadata = self._read_summary_file_locked()
+            if not self._summary_is_valid_locked(records, state, summary, metadata):
+                return ""
             return summary
 
     def load_context(self) -> str:

@@ -2,8 +2,8 @@ import json
 
 from pydantic import ValidationError
 
-from llm.Agent.memory import append_plan_visualization
-from llm.Agent.nodes.universal import _available_tools, _chat_completion, add_log
+from llm.Agent.memory import CONTEXT_MEMORY_SUMMARY_MAX_CHARS, append_plan_visualization
+from llm.Agent.nodes.universal import _available_tool_summaries, _chat_completion, add_log
 from llm.Agent.prompt import PLANNER_PROMPT
 from llm.Agent.state import (
     AgentFailure,
@@ -105,13 +105,19 @@ def _planner_payload(
     planner_mode: PlannerMode,
 ) -> dict[str, object]:
     replan_context = state.get("replan_context", {})
+    context_memory_summary = state.get("context_memory_summary", "")
+    if not isinstance(context_memory_summary, str):
+        raise ValueError("context_memory_summary must be a string")
     payload: dict[str, object] = {
         "planner_mode": planner_mode,
         "question": question,
-        "context_memory": state.get("context_memory", []),
-        "available_tools": _available_tools(),
+        "context_memory_summary": context_memory_summary[
+            :CONTEXT_MEMORY_SUMMARY_MAX_CHARS
+        ],
+        "available_tools": _available_tool_summaries(),
     }
     if planner_mode in {"replan", "step_replan"}:
+        payload["replan_signal"] = _replan_signal(replan_context, planner_mode)
         payload["plan"] = state.get("plan", [])
         payload["completed_steps"] = state.get("step_results", [])
     if planner_mode == "replan":
@@ -122,11 +128,23 @@ def _planner_payload(
     if planner_mode == "step_replan":
         payload["current_step"] = replan_context.get("current_step") or _current_step_payload(state)
         payload["react_results"] = replan_context.get("react_results", state.get("react_results", []))
-        payload["no_finding_count"] = replan_context.get(
-            "no_finding_count",
-            _current_no_finding_count(state),
-        )
     return payload
+
+
+def _replan_signal(
+    replan_context: dict[str, object],
+    planner_mode: PlannerMode,
+) -> str:
+    expected_signal = {
+        "replan": "overturning",
+        "step_replan": "finding_missing",
+    }.get(planner_mode)
+    signal = replan_context.get("signal")
+    if signal != expected_signal:
+        raise ValueError(
+            f"planner_mode {planner_mode} requires replan_signal {expected_signal}"
+        )
+    return expected_signal
 
 
 def _planned_steps_for_mode(
@@ -173,13 +191,6 @@ def _step_replan_start_index(state: AgentState) -> int:
 def _current_step_payload(state: AgentState) -> dict[str, object]:
     plan = state.get("plan", [])
     return dict(plan[_step_replan_start_index(state)])
-
-
-def _current_no_finding_count(state: AgentState) -> int:
-    current_step_id = state.get("current_step_id")
-    if not current_step_id:
-        return 0
-    return int(state.get("no_finding_counts", {}).get(current_step_id, 0) or 0)
 
 
 def _parse_agent_plan(content: str) -> AgentPlan:

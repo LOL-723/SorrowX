@@ -31,6 +31,7 @@ MAX_PLAN_STEPS = 8
 MAX_REPLAN_COUNT = 1
 MAX_STEP_REPLAN_COUNT = 1
 MAX_REACT_TURNS_PER_STEP = 7
+FINDING_MISSING_THRESHOLD = 3
 
 
 class PlanStep(BaseModel):
@@ -92,6 +93,7 @@ def plan_step_to_state(step: PlanStep) -> PlanStepState:
 class AgentState(TypedDict, total=False):
     question: str
     context_memory: str
+    context_memory_summary: str
     tool_context: ToolContext
     _event_callback: AgentEventCallback
 

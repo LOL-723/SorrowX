@@ -498,7 +498,6 @@ def _handle_finding_missing_signal(
             "current_step_id": step_id,
             "current_step": {"step_id": step_id, "task": task},
             "react_results": trigger_trace,
-            "no_finding_count": memory.no_finding_counts.get(step_id, 0),
         },
         "current_react_turn_count": turn_index,
         **memory.state_fields(),
