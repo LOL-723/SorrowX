@@ -2,6 +2,12 @@ git reset --soft HEAD~1  删除最新提交记录(本地)
 
 git push --force-with-lease 删除最新提交记录(远程)
 
+修改某次提交名称：
+git rebase -i HEAD~5  查看最新5次提交
+把要改的那一行：PICK d4e5f6g wrong commit name
+改成：REWORD d4e5f6g wrong commit name
+最后执行git push --force-with-lease
+
 Agent runtime
 
 All Agent requests use one execution entry point:
