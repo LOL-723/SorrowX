@@ -1,5 +1,6 @@
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from daemon.events import EventBus
 from llm.Agent.AgentEngine import AgentLoopEngine
 from llm.Agent.AgentRuntime import AgentRequest, AgentRuntime
 from llm.Agent.memory import ContextMemory, MemoryRefreshScheduler
+from llm.Agent.scheduler import AgentScheduler
 from session.manager import SessionManager
 
 
@@ -170,6 +172,74 @@ class AgentRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "session does not exist"):
                 runtime.run(AgentRequest(goal="question", session_id="session_1"))
 
+    def test_runtime_creates_run_scoped_scheduler_and_shuts_it_down(self) -> None:
+        schedulers: list[AgentScheduler] = []
+        worker_handles = []
+        root_thread_id = threading.get_ident()
+
+        def scheduler_factory(*, run_id: str, max_workers: int) -> AgentScheduler:
+            scheduler = AgentScheduler(run_id=run_id, max_workers=max_workers)
+            schedulers.append(scheduler)
+            return scheduler
+
+        class WorkerSubmittingEngine:
+            def execute(self, request, context, emit):
+                self.assert_root_thread = threading.get_ident()
+                worker_handles.append(schedulers[-1].submit(lambda: "worker result"))
+                return type("Result", (), {"answer": "root result"})()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = _manager(Path(temp_dir))
+            session_id = manager.new_session()
+            engine = WorkerSubmittingEngine()
+            runtime = AgentRuntime(
+                engine=engine,
+                session_manager=manager,
+                memory_scheduler=_NoopMemoryScheduler(),
+                scheduler_max_workers=1,
+                scheduler_factory=scheduler_factory,
+            )
+            result = runtime.run(
+                AgentRequest(goal="run", session_id=session_id),
+                run_id="run-lifecycle",
+            )
+
+        self.assertEqual(result.status, "finished")
+        self.assertEqual(engine.assert_root_thread, root_thread_id)
+        self.assertEqual(len(schedulers), 1)
+        self.assertEqual(schedulers[0].run_id, "run-lifecycle")
+        self.assertEqual(schedulers[0].max_workers, 1)
+        self.assertTrue(schedulers[0].is_shutdown)
+        self.assertEqual(worker_handles[0].future.result(), "worker result")
+
+    def test_runtime_shuts_down_scheduler_when_root_fails(self) -> None:
+        schedulers: list[AgentScheduler] = []
+
+        def scheduler_factory(*, run_id: str, max_workers: int) -> AgentScheduler:
+            scheduler = AgentScheduler(run_id=run_id, max_workers=max_workers)
+            schedulers.append(scheduler)
+            return scheduler
+
+        class FailingEngine:
+            def execute(self, request, context, emit):
+                raise RuntimeError("root failed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = _manager(Path(temp_dir))
+            session_id = manager.new_session()
+            runtime = AgentRuntime(
+                engine=FailingEngine(),
+                session_manager=manager,
+                memory_scheduler=_NoopMemoryScheduler(),
+                scheduler_factory=scheduler_factory,
+            )
+            result = runtime.run(AgentRequest(goal="fail", session_id=session_id))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error, "root failed")
+        self.assertEqual(len(schedulers), 1)
+        self.assertTrue(schedulers[0].is_shutdown)
+
 
 def _manager(root: Path) -> SessionManager:
     return SessionManager(
@@ -177,6 +247,11 @@ def _manager(root: Path) -> SessionManager:
         memory_root=root / "storage" / "session_memory",
         trace_root=root / "trace" / "session_trace",
     )
+
+
+class _NoopMemoryScheduler:
+    def schedule(self, memory, *, on_failure=None):
+        return False
 
 
 if __name__ == "__main__":

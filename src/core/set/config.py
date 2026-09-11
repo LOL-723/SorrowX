@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -7,6 +8,7 @@ class Settings(BaseSettings):
     LLM_MODEL: str | None = None
     LLM_TIMEOUT: float = 30.0
     LLM_TEMPERATURE: float = 0.1
+    AGENT_SCHEDULER_MAX_WORKERS: int = Field(default=2, ge=1)
     HF_TOKEN: str | None = None
     RAG_STORAGE_DIR: str = "storage/rag"
     RAG_CHROMA_DIR: str = "storage/chroma_db"

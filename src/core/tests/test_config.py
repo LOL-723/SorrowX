@@ -3,10 +3,19 @@ import os
 import unittest
 from unittest.mock import patch
 
+from pydantic import ValidationError
+
 from set.config import Settings, require_llm_settings
 
 
 class SettingsTests(unittest.TestCase):
+    def test_agent_scheduler_uses_small_bounded_default(self) -> None:
+        self.assertEqual(Settings().AGENT_SCHEDULER_MAX_WORKERS, 2)
+
+    def test_agent_scheduler_rejects_non_positive_worker_limit(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(AGENT_SCHEDULER_MAX_WORKERS=0)
+
     def test_missing_llm_configuration_is_reported_when_used(self) -> None:
         with patch.dict(
             os.environ,

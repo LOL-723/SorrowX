@@ -3,11 +3,13 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TextIO
+from typing import TYPE_CHECKING, Any, Callable, Literal, TextIO
 
 from daemon.events import Event, EventBus, EventHandler
 from llm.Agent.memory import ContextMemory, MemoryRefreshScheduler
+from llm.Agent.scheduler import AgentScheduler
 from session.manager import SessionManager, get_session_manager
+from set.config import settings
 from trace.recorder import trace_run
 
 
@@ -86,6 +88,8 @@ class AgentRuntime:
         session_manager: SessionManager | None = None,
         memory_scheduler: MemoryRefreshScheduler | None = None,
         workspace_root: str | Path | None = None,
+        scheduler_max_workers: int | None = None,
+        scheduler_factory: Callable[..., AgentScheduler] | None = None,
     ) -> None:
         self.engine = engine
         self.runs_dir = Path(runs_dir) if runs_dir is not None else RUNS_DIR
@@ -93,6 +97,14 @@ class AgentRuntime:
         self.session_manager = session_manager or get_session_manager()
         self.memory_scheduler = memory_scheduler or MemoryRefreshScheduler()
         self.workspace_root = Path(workspace_root) if workspace_root is not None else Path.cwd()
+        self.scheduler_max_workers = (
+            scheduler_max_workers
+            if scheduler_max_workers is not None
+            else settings.AGENT_SCHEDULER_MAX_WORKERS
+        )
+        if self.scheduler_max_workers < 1:
+            raise ValueError("scheduler_max_workers must be at least 1")
+        self.scheduler_factory = scheduler_factory or AgentScheduler
 
     def new_run_id(self) -> str:
         timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -106,18 +118,21 @@ class AgentRuntime:
         event_bus: EventBus | None = None,
     ) -> AgentResult:
         context = self._create_context(request, run_id=run_id)
+        scheduler = self.scheduler_factory(
+            run_id=context.run_id,
+            max_workers=self.scheduler_max_workers,
+        )
         events_path = self.runs_dir / context.run_id / "events.jsonl"
         bus = event_bus or EventBus()
         subscribed_handlers: list[EventHandler] = []
-        for handler in self.extra_handlers:
-            bus.subscribe(handler)
-            subscribed_handlers.append(handler)
-
         status: Literal["finished", "failed"] = "failed"
         answer = ""
         error: str | None = None
 
         try:
+            for handler in self.extra_handlers:
+                bus.subscribe(handler)
+                subscribed_handlers.append(handler)
             with trace_run(context.run_id, session_id=context.session_id):
                 with EventWriter(events_path, run_id=context.run_id) as writer:
                     writer.subscribe(bus)
@@ -146,8 +161,11 @@ class AgentRuntime:
                             error=error,
                         )
         finally:
-            for handler in reversed(subscribed_handlers):
-                bus.unsubscribe(handler)
+            try:
+                for handler in reversed(subscribed_handlers):
+                    bus.unsubscribe(handler)
+            finally:
+                scheduler.shutdown()
 
         return AgentResult(
             run_id=context.run_id,
